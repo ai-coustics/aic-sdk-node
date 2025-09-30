@@ -1,15 +1,15 @@
-# AI-Coustics Speech Enhancement for Node.js
+# ai-coustics Speech Enhancement for Node.js
 
 Node.js bindings for the [ai-coustics](https://ai-coustics.com) speech enhancement SDK. This package provides a high-level API for real-time audio processing with advanced noise reduction and speech enhancement capabilities.
 
 ## Features
 
-- 🎯 **Easy to use** - High-level TypeScript/JavaScript API
-- 🚀 **Low latency** - Multiple model variants from 10ms to 30ms
-- 🔊 **High quality** - State-of-the-art ML-based speech enhancement
-- 🎚️ **Configurable** - Adjustable enhancement level, voice gain, and noise gate
-- 📦 **Cross-platform** - Supports macOS (x64/ARM64), Linux (x64/ARM64), and Windows (x64)
-- 💪 **Type-safe** - Full TypeScript support with comprehensive type definitions
+- **Easy to use** - High-level TypeScript/JavaScript API
+- **Low latency** - Multiple model variants from 10ms to 30ms
+- **High quality** - State-of-the-art ML-based speech enhancement
+- **Configurable** - Adjustable enhancement level, voice gain, and noise gate
+- **Cross-platform** - Supports macOS (x64/ARM64), Linux (x64/ARM64), and Windows (x64)
+- **Type-safe** - Full TypeScript support with comprehensive type definitions
 
 ## Installation
 
@@ -29,16 +29,18 @@ The SDK binaries will be automatically downloaded during installation for your p
 
 ### Setting Your License Key
 
-You can provide your license key in two ways:
+**Important:** You need an **SDK license key** (not an API license key - these are different!). To obtain an SDK license key, please contact us at info@ai-coustics.com.
+
+You can provide your SDK license key in two ways:
 
 1. **Environment Variable (Recommended for CI/CD):**
    ```bash
-   export AIC_SDK_LICENSE="your-license-key"
+   export AIC_SDK_LICENSE="your-sdk-license-key"
    ```
 
 2. **Direct in Code:**
    ```javascript
-   const model = new Model(ModelType.QUAIL_S48, 'your-license-key');
+   const model = new Model(ModelType.QUAIL_S48, 'your-sdk-license-key');
    ```
 
 ### JavaScript
@@ -105,14 +107,14 @@ Choose a model based on your latency and quality requirements:
 
 | Model | Sample Rate | Latency | Use Case |
 |-------|-------------|---------|----------|
-| `QUAIL_XXS` | 48 kHz | 10ms | Ultra-low latency applications |
-| `QUAIL_XS` | 48 kHz | 10ms | Low latency, balanced quality |
-| `QUAIL_S48` | 48 kHz | 30ms | Balanced (recommended) |
-| `QUAIL_S16` | 16 kHz | 30ms | Telephony, voice calls |
-| `QUAIL_S8` | 8 kHz | 30ms | Narrow-band audio |
 | `QUAIL_L48` | 48 kHz | 30ms | Highest quality |
 | `QUAIL_L16` | 16 kHz | 30ms | High quality, telephony |
 | `QUAIL_L8` | 8 kHz | 30ms | High quality, narrow-band |
+| `QUAIL_S48` | 48 kHz | 30ms | Balanced (recommended) |
+| `QUAIL_S16` | 16 kHz | 30ms | Telephony, voice calls |
+| `QUAIL_S8` | 8 kHz | 30ms | Narrow-band audio |
+| `QUAIL_XS` | 48 kHz | 10ms | Low latency, balanced quality |
+| `QUAIL_XXS` | 48 kHz | 10ms | Ultra-low latency applications |
 
 ### Model Class
 
@@ -271,26 +273,6 @@ model.setParameter(Parameter.NOISE_GATE_ENABLE, 1.0);
 
 model.destroy();
 ```
-
-## Building from Source
-
-If you need to build the native addon from source:
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd node-wrapper
-
-# Install dependencies
-npm install
-
-# Build TypeScript and native addon
-npm run build
-
-# Run examples
-npm test
-```
-
 ## Requirements
 
 - Node.js >= 14.0.0
@@ -302,11 +284,12 @@ npm test
 
 ## License
 
-This package is proprietary software. See LICENSE file for details.
+This project uses a dual-license structure:
 
-Unauthorized copying, distribution, or modification is strictly prohibited.
+- **Node.js Wrapper Code** (source files in this repository): Licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
+- **AIC SDK Binaries** (files in `sdk/lib/*` and `aic.h`): Licensed under the proprietary AIC-SDK Binary License Agreement. See [LICENSE.AIC-SDK](LICENSE.AIC-SDK) for details.
 
-For inquiries: systems@ai-coustics.com
+When you use this package, both licenses apply to their respective components.
 
 ## Support
 
@@ -314,42 +297,6 @@ For inquiries: systems@ai-coustics.com
 - Issues: [GitHub Issues](https://github.com/ai-coustics/node-speech-enhancement/issues)
 - Email: systems@ai-coustics.com
 
-## Running Examples
+---
 
-Check the `examples/` directory for comprehensive usage examples demonstrating various features.
-
-### Quick Start
-
-Make sure your license key is set:
-
-```bash
-export AIC_SDK_LICENSE="your-license-key"
-```
-
-### Run Examples
-
-```bash
-# Run basic test
-npm test
-
-# Run JavaScript example
-npm run example:js
-
-# Run TypeScript example
-npm run example:ts
-
-# Run all tests and examples
-npm run test:full
-```
-
-### Direct Execution
-
-```bash
-# JavaScript (can run directly with node)
-node examples/example.js
-
-# TypeScript (requires ts-node)
-npx ts-node examples/example.ts
-```
-
-**Note:** TypeScript files (`.ts`) cannot be run directly with `node`. Use `ts-node` or compile them first with `tsc`.
+Made with ❤️ by the ai-coustics team
