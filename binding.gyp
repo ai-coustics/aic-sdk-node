@@ -32,7 +32,8 @@
         }],
         ["OS=='win'", {
           "libraries": [
-            "../sdk/lib/aic.lib"
+            "../sdk/lib/aic.lib",
+            "ntdll.lib"
           ],
           "copies": [
             {
