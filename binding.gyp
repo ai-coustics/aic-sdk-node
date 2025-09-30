@@ -26,7 +26,7 @@
           ],
           "xcode_settings": {
             "OTHER_LDFLAGS": [
-              "-Wl,-rpath,@loader_path/../sdk/lib"
+              "-Wl,-rpath,@loader_path/../../sdk/lib"
             ]
           }
         }],
