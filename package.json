@@ -1,0 +1,62 @@
+{
+  "name": "@ai-coustics/aic-sdk",
+  "version": "0.6.3",
+  "description": "Node.js bindings for ai-coustics speech enhancement SDK",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "install": "node scripts/download-sdk.js && node-gyp rebuild",
+    "build": "tsc",
+    "prepare": "npm run build",
+    "test": "node test-basic.js",
+    "test:full": "node test-basic.js && npm run example:js && npm run example:ts",
+    "example:js": "node examples/example.js",
+    "example:ts": "npx ts-node examples/example.ts",
+    "example:ts-compile": "tsc examples/example.ts --outDir examples && node examples/example.js",
+    "clean": "rm -rf build dist sdk"
+  },
+  "keywords": [
+    "audio",
+    "speech",
+    "enhancement",
+    "noise-reduction",
+    "ai-coustics",
+    "native",
+    "addon"
+  ],
+  "author": "ai-coustics GmbH",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ai-coustics/node-speech-enhancement.git"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "dependencies": {
+    "node-addon-api": "^7.0.0",
+    "node-gyp": "^10.0.0",
+    "tar": "^6.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist",
+    "binding.gyp",
+    "scripts",
+    "src/binding.cc"
+  ],
+  "gypfile": true
+}

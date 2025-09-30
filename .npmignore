@@ -1,0 +1,38 @@
+# Source files (include compiled dist/ instead)
+src/
+tsconfig.json
+
+# Examples and documentation
+examples/
+
+# Build artifacts not needed in package
+*.log
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Testing
+coverage/
+.nyc_output/
+test/
+
+# SDK (will be downloaded during install)
+sdk/
+aic-sdk-*/
+tmp/
+
+# Misc
+.env
+.env.local

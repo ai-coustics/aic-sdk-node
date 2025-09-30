@@ -1,0 +1,44 @@
+name: Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [18.x, 20.x, 22.x]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build TypeScript
+      run: npm run build
+
+    - name: Build native addon
+      run: npx node-gyp rebuild
+
+    - name: Run tests
+      env:
+        AIC_SDK_LICENSE: ${{ secrets.AIC_SDK_LICENSE }}
+      run: node test-basic.js
+
+    - name: Run JavaScript examples (syntax check)
+      run: node --check examples/example.js
+
+    - name: Run TypeScript examples (syntax check)
+      run: npx tsc --noEmit examples/example.ts
