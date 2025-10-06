@@ -73,7 +73,7 @@ function basicExample() {
 function stereoExample() {
   console.log("\n=== Stereo Planar Example ===");
 
-  const model = new Model(ModelType.QUAIL_S16, LICENSE_KEY);
+  const model = new Model(ModelType.QUAIL_S48, LICENSE_KEY);
 
   try {
     const optimalSampleRate = model.getOptimalSampleRate();
@@ -109,91 +109,6 @@ function stereoExample() {
   }
 }
 
-// Example: Stream processing simulation
-function streamProcessingExample() {
-  console.log("\n=== Stream Processing Example ===");
-
-  const model = new Model(ModelType.QUAIL_XS, LICENSE_KEY);
-
-  try {
-    const optimalSampleRate = model.getOptimalSampleRate();
-    const optimalNumFrames = model.getOptimalNumFrames();
-
-    model.initialize({
-      sampleRate: optimalSampleRate,
-      numChannels: 1,
-      numFrames: optimalNumFrames,
-    });
-
-    console.log("Processing stream of", 10, "chunks...");
-
-    // Simulate processing multiple chunks
-    for (let chunk = 0; chunk < 10; chunk++) {
-      const audioBuffer = new Float32Array(optimalNumFrames);
-
-      // Fill with test data
-      for (let i = 0; i < optimalNumFrames; i++) {
-        audioBuffer[i] = Math.random() * 2 - 1;
-      }
-
-      model.processInterleaved(audioBuffer, 1, optimalNumFrames);
-
-      if (chunk % 3 === 0) {
-        process.stdout.write(".");
-      }
-    }
-
-    console.log("\nStream processing completed");
-
-    // Reset state (e.g., when stream is interrupted)
-    model.reset();
-    console.log("Model state reset");
-  } catch (error) {
-    console.error("Error:", error.message);
-  } finally {
-    model.destroy();
-  }
-}
-
-// Example: Different model types comparison
-function modelComparisonExample() {
-  console.log("\n=== Model Comparison Example ===");
-
-  const modelTypes = [
-    { type: ModelType.QUAIL_XXS, name: "QUAIL_XXS (lowest latency)" },
-    { type: ModelType.QUAIL_XS, name: "QUAIL_XS (low latency)" },
-    { type: ModelType.QUAIL_S48, name: "QUAIL_S48 (balanced)" },
-    { type: ModelType.QUAIL_L48, name: "QUAIL_L48 (high quality)" },
-  ];
-
-  modelTypes.forEach(({ type, name }) => {
-    try {
-      const model = new Model(type, LICENSE_KEY);
-
-      console.log(`\n${name}:`);
-      console.log("  - Sample rate:", model.getOptimalSampleRate(), "Hz");
-      console.log("  - Num frames:", model.getOptimalNumFrames());
-
-      // Initialize to get accurate delay
-      model.initialize({
-        sampleRate: model.getOptimalSampleRate(),
-        numChannels: 1,
-        numFrames: model.getOptimalNumFrames(),
-      });
-
-      const delay = model.getOutputDelay();
-      const latencyMs = ((delay / model.getOptimalSampleRate()) * 1000).toFixed(
-        1,
-      );
-      console.log("  - Output delay:", delay, "samples (" + latencyMs + " ms)");
-
-      model.destroy();
-    } catch (error) {
-      console.error(`  Error with ${name}:`, error.message);
-    }
-  });
-}
-
 // Run examples
 console.log("AI-Coustics Speech Enhancement Node.js Examples\n");
 if (LICENSE_KEY === "YOUR_LICENSE_KEY") {
@@ -203,12 +118,8 @@ if (LICENSE_KEY === "YOUR_LICENSE_KEY") {
 }
 
 try {
-  // Uncomment the examples you want to run:
-
-  // basicExample();
-  // stereoExample();
-  // streamProcessingExample();
-  // modelComparisonExample();
+  basicExample();
+  stereoExample();
 
   console.log(
     "\n✓ Examples completed (uncomment examples in the code to run them)",

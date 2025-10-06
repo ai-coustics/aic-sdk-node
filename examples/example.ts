@@ -1,10 +1,4 @@
-import {
-  Model,
-  ModelType,
-  Parameter,
-  getSdkVersion,
-  AudioConfig,
-} from "../src/index";
+import { Model, ModelType, Parameter, getSdkVersion } from "../src/index";
 
 // Get license key from environment variable
 const LICENSE_KEY = process.env.AIC_SDK_LICENSE || "YOUR_LICENSE_KEY";
@@ -26,7 +20,7 @@ function basicExample(): void {
     console.log("Optimal num frames:", optimalNumFrames);
 
     // Initialize with typed configuration
-    const config: AudioConfig = {
+    const config = {
       sampleRate: optimalSampleRate,
       numChannels: 1,
       numFrames: optimalNumFrames,
@@ -71,101 +65,6 @@ function basicExample(): void {
   }
 }
 
-// Example: Class-based audio processor
-class AudioProcessor {
-  private model: Model;
-  private config: AudioConfig;
-
-  constructor(modelType: ModelType, licenseKey: string) {
-    this.model = new Model(modelType, licenseKey);
-
-    // Use optimal settings
-    this.config = {
-      sampleRate: this.model.getOptimalSampleRate(),
-      numChannels: 1,
-      numFrames: this.model.getOptimalNumFrames(),
-    };
-
-    this.model.initialize(this.config);
-  }
-
-  public process(audioData: Float32Array): void {
-    if (audioData.length !== this.config.numFrames * this.config.numChannels) {
-      throw new Error(
-        `Expected ${this.config.numFrames * this.config.numChannels} samples, got ${audioData.length}`,
-      );
-    }
-
-    this.model.processInterleaved(
-      audioData,
-      this.config.numChannels,
-      this.config.numFrames,
-    );
-  }
-
-  public setEnhancementLevel(level: number): void {
-    if (level < 0 || level > 1) {
-      throw new Error("Enhancement level must be between 0 and 1");
-    }
-    this.model.setParameter(Parameter.ENHANCEMENT_LEVEL, level);
-  }
-
-  public setVoiceGain(gain: number): void {
-    if (gain < 0.1 || gain > 4.0) {
-      throw new Error("Voice gain must be between 0.1 and 4.0");
-    }
-    this.model.setParameter(Parameter.VOICE_GAIN, gain);
-  }
-
-  public reset(): void {
-    this.model.reset();
-  }
-
-  public getLatencyMs(): number {
-    const delaySamples = this.model.getOutputDelay();
-    return (delaySamples / this.config.sampleRate) * 1000;
-  }
-
-  public destroy(): void {
-    this.model.destroy();
-  }
-}
-
-function classBasedExample(): void {
-  console.log("\n=== Class-Based Processor Example ===");
-
-  try {
-    const processor = new AudioProcessor(ModelType.QUAIL_S48, LICENSE_KEY);
-
-    console.log(
-      "Processor latency:",
-      processor.getLatencyMs().toFixed(1),
-      "ms",
-    );
-
-    // Set parameters
-    processor.setEnhancementLevel(0.9);
-    processor.setVoiceGain(1.5);
-
-    // Create test audio
-    const audioData = new Float32Array(480); // Assuming 480 frames
-    for (let i = 0; i < audioData.length; i++) {
-      audioData[i] = Math.random() * 2 - 1;
-    }
-
-    // Process
-    processor.process(audioData);
-
-    console.log("Audio processed through class-based processor");
-
-    processor.destroy();
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error("Error:", error.message);
-    }
-  }
-}
-
 // Run examples
 console.log("AI-Coustics Speech Enhancement TypeScript Examples\n");
 
@@ -176,9 +75,7 @@ if (LICENSE_KEY === "YOUR_LICENSE_KEY") {
 }
 
 try {
-  // Uncomment to run:
-  // basicExample();
-  // classBasedExample();
+  basicExample();
 
   console.log("\n✓ TypeScript examples completed");
 } catch (error) {

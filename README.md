@@ -29,11 +29,11 @@ The SDK binaries will be automatically downloaded during installation for your p
 ### Example Code
 
 ```javascript
-import { Model, ModelType, Parameter, AudioConfig } from '@ai-coustics/aic-sdk';
+import { Model, ModelType, Parameter } from '@ai-coustics/aic-sdk';
 
 const model = new Model(ModelType.QUAIL_L48, "YOUR_LICENSE_KEY");
 
-const config: AudioConfig = {
+const config = {
   sampleRate: model.getOptimalSampleRate(),
   numChannels: 2,
   numFrames: model.getOptimalNumFrames()
