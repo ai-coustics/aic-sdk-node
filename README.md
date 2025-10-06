@@ -10,14 +10,9 @@ Our Speech Enhancement SDK delivers state-of-the-art speech-enhancement in real-
 
 ### Acquire an SDK License Key
 
-To use the SDK, you'll need an SDK license key (not the API license key - this is a different thing!). Contact our team to receive your time-limited demo key:
+You need an **SDK license key**. This is distinct from the API license key used for our cloud API services. To obtain an SDK license key, please contact us at [info@ai-coustics.com](mailto:info@ai-coustics.com)
 
-- **Email**: [info@ai-coustics.com](mailto:info@ai-coustics.com)
-- **Website**: [ai-coustics.com](https://ai-coustics.com)
-
-Once you have your license key, set it as an environment variable or pass it directly to the SDK initialization functions.
-
-## Installation
+### Installation
 
 ```bash
 npm install @ai-coustics/aic-sdk
@@ -31,11 +26,9 @@ The SDK binaries will be automatically downloaded during installation for your p
 - Linux (x64, ARM64)
 - Windows (x64)
 
-## Quick Start
+### Example Code
 
-**Important:** You need an **SDK license key** (not an API license key - these are different!). To obtain an SDK license key, please contact us at info@ai-coustics.com.
-
-```typescript
+```javascript
 import { Model, ModelType, Parameter, AudioConfig } from '@ai-coustics/aic-sdk';
 
 const model = new Model(ModelType.QUAIL_L48, "YOUR_LICENSE_KEY");
