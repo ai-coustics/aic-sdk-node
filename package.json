@@ -19,16 +19,14 @@
     "audio",
     "speech",
     "enhancement",
-    "noise-reduction",
-    "ai-coustics",
-    "native",
-    "addon"
+    "voice",
+    "ai-coustics"
   ],
   "author": "ai-coustics GmbH",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ai-coustics/node-speech-enhancement.git"
+    "url": "https://github.com/ai-coustics/aic-sdk-node.git"
   },
   "engines": {
     "node": ">=14.0.0"
