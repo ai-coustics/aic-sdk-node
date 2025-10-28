@@ -36,7 +36,7 @@ try {
     "\n3. Testing getOptimalSampleRate() and getOptimalNumFrames()...",
   );
   const sampleRate = model.getOptimalSampleRate();
-  const numFrames = model.getOptimalNumFrames();
+  const numFrames = model.getOptimalNumFrames(sampleRate);
   console.log("   ✓ Optimal sample rate:", sampleRate, "Hz");
   console.log("   ✓ Optimal num frames:", numFrames);
 
@@ -46,6 +46,7 @@ try {
     sampleRate: sampleRate,
     numChannels: 1,
     numFrames: numFrames,
+    variableFrames: false,
   });
   console.log("   ✓ Model initialized");
   console.log("   ✓ Is initialized:", model.isInitialized);
@@ -91,6 +92,7 @@ try {
     sampleRate: sampleRate,
     numChannels: 2,
     numFrames: numFrames,
+    variableFrames: false,
   });
 
   const leftChannel = new Float32Array(numFrames);

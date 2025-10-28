@@ -4,7 +4,7 @@
  */
 
 // Load the native addon
-const binding = require('../build/Release/aic_binding.node');
+const binding = require("../build/Release/aic_binding.node");
 
 /**
  * Error codes returned by the SDK
@@ -14,20 +14,24 @@ export enum ErrorCode {
   SUCCESS = 0,
   /** Required pointer argument was NULL */
   NULL_POINTER = 1,
-  /** License key format is invalid or corrupted */
-  LICENSE_INVALID = 2,
-  /** License key has expired */
-  LICENSE_EXPIRED = 3,
+  /** Parameter value is outside acceptable range */
+  PARAMETER_OUT_OF_RANGE = 2,
+  /** Model must be initialized before this operation */
+  MODEL_NOT_INITIALIZED = 3,
   /** Audio configuration is not supported by the model */
-  UNSUPPORTED_AUDIO_CONFIG = 4,
+  AUDIO_CONFIG_UNSUPPORTED = 4,
   /** Process was called with a different audio buffer configuration than initialized */
   AUDIO_CONFIG_MISMATCH = 5,
-  /** Model must be initialized before this operation */
-  NOT_INITIALIZED = 6,
-  /** Parameter value is outside acceptable range */
-  PARAMETER_OUT_OF_RANGE = 7,
+  /** SDK key was not authorized or process failed to report usage. Check if you have internet connection. */
+  ENHANCEMENT_NOT_ALLOWED = 6,
+  /** Internal error occurred. Contact support. */
+  INTERNAL_ERROR = 7,
+  /** License key format is invalid or corrupted */
+  LICENSE_FORMAT_INVALID = 50,
+  /** License key has expired */
+  LICENSE_VERSION_UNSUPPORTED = 51,
   /** SDK activation failed */
-  SDK_ACTIVATION_ERROR = 8,
+  LICENSE_EXPIRED = 52,
 }
 
 /**
@@ -56,6 +60,18 @@ export enum ModelType {
  * Configurable parameters for audio enhancement
  */
 export enum Parameter {
+  // Controls whether audio processing is bypassed while preserving algorithmic delay.
+  //
+  // When enabled, the input audio passes through unmodified, but the output is still
+  // delayed by the same amount as during normal processing. This ensures seamless
+  // transitions when toggling enhancement on/off without audible clicks or timing shifts.
+  //
+  // **Range:** 0.0 to 1.0
+  // - **0.0:** Enhancement active (normal processing)
+  // - **1.0:** Bypass enabled (latency-compensated passthrough)
+  //
+  // **Default:** 0.0
+  BYPASS = 0,
   /**
    * Controls the intensity of speech enhancement processing.
    * Range: 0.0 to 1.0
@@ -63,7 +79,7 @@ export enum Parameter {
    * - 1.0: Full enhancement - maximum noise reduction
    * Default: 1.0
    */
-  ENHANCEMENT_LEVEL = 0,
+  ENHANCEMENT_LEVEL = 1,
 
   /**
    * Compensates for perceived volume reduction after noise removal.
@@ -74,7 +90,7 @@ export enum Parameter {
    * - 4.0: Maximum boost (+12 dB)
    * Default: 1.0
    */
-  VOICE_GAIN = 1,
+  VOICE_GAIN = 2,
 
   /**
    * Enables/disables a noise gate as a post-processing step.
@@ -83,7 +99,7 @@ export enum Parameter {
    * - 1.0: Noise gate enabled
    * Default: 0.0
    */
-  NOISE_GATE_ENABLE = 2,
+  NOISE_GATE_ENABLE = 3,
 }
 
 /**
@@ -96,6 +112,8 @@ export interface AudioConfig {
   numChannels: number;
   /** Number of samples per channel in each process call */
   numFrames: number;
+  /** Allows varying frame counts per process call (up to `num_frames`), but increases delay. **/
+  variableFrames: boolean;
 }
 
 /**
@@ -114,7 +132,9 @@ export class Model {
   constructor(modelType: ModelType, licenseKey: string) {
     const result = binding.createModel(modelType, licenseKey);
     if (result.error !== ErrorCode.SUCCESS) {
-      throw new Error(`Failed to create model: ${this.getErrorMessage(result.error)}`);
+      throw new Error(
+        `Failed to create model: ${this.getErrorMessage(result.error)}`,
+      );
     }
     this.handle = result.model;
   }
@@ -126,9 +146,17 @@ export class Model {
    * @throws Error if initialization fails
    */
   initialize(config: AudioConfig): void {
-    const error = binding.initialize(this.handle, config.sampleRate, config.numChannels, config.numFrames);
+    const error = binding.initialize(
+      this.handle,
+      config.sampleRate,
+      config.numChannels,
+      config.numFrames,
+      config.variableFrames,
+    );
     if (error !== ErrorCode.SUCCESS) {
-      throw new Error(`Failed to initialize model: ${this.getErrorMessage(error)}`);
+      throw new Error(
+        `Failed to initialize model: ${this.getErrorMessage(error)}`,
+      );
     }
     this._isInitialized = true;
   }
@@ -152,10 +180,21 @@ export class Model {
    * @param numFrames - Number of frames (must match initialization)
    * @throws Error if processing fails
    */
-  processInterleaved(audio: Float32Array, numChannels: number, numFrames: number): void {
-    const error = binding.processInterleaved(this.handle, audio, numChannels, numFrames);
+  processInterleaved(
+    audio: Float32Array,
+    numChannels: number,
+    numFrames: number,
+  ): void {
+    const error = binding.processInterleaved(
+      this.handle,
+      audio,
+      numChannels,
+      numFrames,
+    );
     if (error !== ErrorCode.SUCCESS) {
-      throw new Error(`Failed to process audio: ${this.getErrorMessage(error)}`);
+      throw new Error(
+        `Failed to process audio: ${this.getErrorMessage(error)}`,
+      );
     }
   }
 
@@ -167,10 +206,21 @@ export class Model {
    * @param numFrames - Number of frames per channel (must match initialization)
    * @throws Error if processing fails
    */
-  processPlanar(audio: Float32Array[], numChannels: number, numFrames: number): void {
-    const error = binding.processPlanar(this.handle, audio, numChannels, numFrames);
+  processPlanar(
+    audio: Float32Array[],
+    numChannels: number,
+    numFrames: number,
+  ): void {
+    const error = binding.processPlanar(
+      this.handle,
+      audio,
+      numChannels,
+      numFrames,
+    );
     if (error !== ErrorCode.SUCCESS) {
-      throw new Error(`Failed to process audio: ${this.getErrorMessage(error)}`);
+      throw new Error(
+        `Failed to process audio: ${this.getErrorMessage(error)}`,
+      );
     }
   }
 
@@ -183,7 +233,9 @@ export class Model {
   setParameter(parameter: Parameter, value: number): void {
     const error = binding.setParameter(this.handle, parameter, value);
     if (error !== ErrorCode.SUCCESS) {
-      throw new Error(`Failed to set parameter: ${this.getErrorMessage(error)}`);
+      throw new Error(
+        `Failed to set parameter: ${this.getErrorMessage(error)}`,
+      );
     }
   }
 
@@ -196,7 +248,9 @@ export class Model {
   getParameter(parameter: Parameter): number {
     const result = binding.getParameter(this.handle, parameter);
     if (result.error !== ErrorCode.SUCCESS) {
-      throw new Error(`Failed to get parameter: ${this.getErrorMessage(result.error)}`);
+      throw new Error(
+        `Failed to get parameter: ${this.getErrorMessage(result.error)}`,
+      );
     }
     return result.value;
   }
@@ -209,7 +263,9 @@ export class Model {
   getOutputDelay(): number {
     const result = binding.getOutputDelay(this.handle);
     if (result.error !== ErrorCode.SUCCESS) {
-      throw new Error(`Failed to get output delay: ${this.getErrorMessage(result.error)}`);
+      throw new Error(
+        `Failed to get output delay: ${this.getErrorMessage(result.error)}`,
+      );
     }
     return result.delay;
   }
@@ -222,20 +278,24 @@ export class Model {
   getOptimalSampleRate(): number {
     const result = binding.getOptimalSampleRate(this.handle);
     if (result.error !== ErrorCode.SUCCESS) {
-      throw new Error(`Failed to get optimal sample rate: ${this.getErrorMessage(result.error)}`);
+      throw new Error(
+        `Failed to get optimal sample rate: ${this.getErrorMessage(result.error)}`,
+      );
     }
     return result.sampleRate;
   }
 
   /**
-   * Gets the native number of frames for the selected model
+   * Gets the native number of frames for the selected sample rate
    * @returns Optimal frame count
    * @throws Error if getting frame count fails
    */
-  getOptimalNumFrames(): number {
-    const result = binding.getOptimalNumFrames(this.handle);
+  getOptimalNumFrames(sampleRate: number): number {
+    const result = binding.getOptimalNumFrames(this.handle, sampleRate);
     if (result.error !== ErrorCode.SUCCESS) {
-      throw new Error(`Failed to get optimal num frames: ${this.getErrorMessage(result.error)}`);
+      throw new Error(
+        `Failed to get optimal num frames: ${this.getErrorMessage(result.error)}`,
+      );
     }
     return result.numFrames;
   }
@@ -260,15 +320,23 @@ export class Model {
 
   private getErrorMessage(errorCode: ErrorCode): string {
     const messages: Record<ErrorCode, string> = {
-      [ErrorCode.SUCCESS]: 'Operation completed successfully',
-      [ErrorCode.NULL_POINTER]: 'Required pointer argument was NULL',
-      [ErrorCode.LICENSE_INVALID]: 'License key format is invalid or corrupted',
-      [ErrorCode.LICENSE_EXPIRED]: 'License key has expired',
-      [ErrorCode.UNSUPPORTED_AUDIO_CONFIG]: 'Audio configuration is not supported by the model',
-      [ErrorCode.AUDIO_CONFIG_MISMATCH]: 'Process was called with a different audio buffer configuration',
-      [ErrorCode.NOT_INITIALIZED]: 'Model must be initialized before this operation',
-      [ErrorCode.PARAMETER_OUT_OF_RANGE]: 'Parameter value is outside acceptable range',
-      [ErrorCode.SDK_ACTIVATION_ERROR]: 'SDK activation failed',
+      [ErrorCode.SUCCESS]: "Operation completed successfully",
+      [ErrorCode.NULL_POINTER]: "Required pointer argument was NULL",
+      [ErrorCode.PARAMETER_OUT_OF_RANGE]:
+        "Parameter value is outside acceptable range",
+      [ErrorCode.MODEL_NOT_INITIALIZED]:
+        "Model must be initialized before this operation",
+      [ErrorCode.AUDIO_CONFIG_UNSUPPORTED]:
+        "Audio configuration is not supported by the model",
+      [ErrorCode.AUDIO_CONFIG_MISMATCH]:
+        "Process was called with a different audio buffer configuration than initialized",
+      [ErrorCode.ENHANCEMENT_NOT_ALLOWED]:
+        "SDK key was not authorized or process failed to report usage. Check if you have internet connection.",
+      [ErrorCode.INTERNAL_ERROR]: "Internal error occurred. Contact support.",
+      [ErrorCode.LICENSE_FORMAT_INVALID]:
+        "License key format is invalid or corrupted",
+      [ErrorCode.LICENSE_VERSION_UNSUPPORTED]: "License key has expired",
+      [ErrorCode.LICENSE_EXPIRED]: "SDK activation failed",
     };
     return messages[errorCode] || `Unknown error code: ${errorCode}`;
   }

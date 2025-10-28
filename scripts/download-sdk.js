@@ -12,7 +12,7 @@ const { exec } = require("child_process");
 const pipelineAsync = promisify(pipeline);
 const execAsync = promisify(exec);
 
-const SDK_VERSION = "0.6.3";
+const SDK_VERSION = "0.8.0";
 const SDK_BASE_URL = `https://github.com/ai-coustics/aic-sdk-c/releases/download/${SDK_VERSION}`;
 
 // Platform-specific archive filenames
@@ -20,22 +20,22 @@ const PLATFORM_MAP = {
   "darwin-x64": `aic-sdk-x86_64-apple-darwin-${SDK_VERSION}.tar.gz`,
   "darwin-arm64": `aic-sdk-aarch64-apple-darwin-${SDK_VERSION}.tar.gz`,
   "linux-x64": `aic-sdk-x86_64-unknown-linux-gnu-${SDK_VERSION}.tar.gz`,
-  "linux-arm64": `aic-sdk-aarch64-unknown-linux-gnu-${SDK_VERSION}.tar.gz`,
   "win32-x64": `aic-sdk-x86_64-pc-windows-msvc-${SDK_VERSION}.zip`,
+  "linux-arm64": `aic-sdk-aarch64-unknown-linux-gnu-${SDK_VERSION}.tar.gz`,
 };
 
 // SHA-256 hashes for each platform archive
 const PLATFORM_HASHES = {
-  "darwin-x64":
-    "a1e8050c8b87b645c2acb5bce396aa964640074b183da54248c2ef9549c41b6b",
   "darwin-arm64":
-    "35384d0e51733f39276c427a92f13d4a983404634604ec5fbeda10a3debc2860",
-  "linux-x64":
-    "e22593f5cc6241be3d495d4a154c1157f298213e614cbe248a419745fc02e681",
+    "030c2948fa8f4d7132de71220e47f67280a2ea60bbad853a6fd619afcf4667ef",
   "linux-arm64":
-    "3c10d6af456d8d6641f7e0f82e85145f79d7b1b6459c820e489f685296fafc28",
+    "fa352fb1c3db29f30ae04eb3d82678e24982c432b045c985cd21592e91b9c0bc",
+  "darwin-x64":
+    "sha256:c83f9e2615275bc814852d9cda73df067491dff214d39b12f678b7e1b5fc07ab",
   "win32-x64":
-    "c6a414e23285e3c2930cae4c942f02aea30175a2986a2871304e6229b83bc91b",
+    "d8e45d8e05674b65d1e654eab810e727b45ec8558a08fb16ec26100c93da3e18",
+  "linux-x64":
+    "342eb68363e3c28c900814618ab3586d058e4d4f4b1c1f204bea6a18438bc8e6",
 };
 
 function getPlatformIdentifier() {
