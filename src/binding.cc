@@ -2,6 +2,31 @@
 #include <napi.h>
 #include <string>
 #include <vector>
+#include <set>
+#include <mutex>
+
+// Thread-safe tracking of destroyed models to prevent double-free
+static std::set<AicModel*> destroyed_models;
+static std::mutex destroyed_models_mutex;
+
+// Helper function to safely destroy a model (prevents double-free)
+static bool SafeDestroyModel(AicModel* model) {
+  if (!model) {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(destroyed_models_mutex);
+
+  // Check if already destroyed
+  if (destroyed_models.find(model) != destroyed_models.end()) {
+    return false;  // Already destroyed
+  }
+
+  // Destroy and mark as destroyed
+  aic_model_destroy(model);
+  destroyed_models.insert(model);
+  return true;
+}
 
 // Module functions
 Napi::Value CreateModel(const Napi::CallbackInfo &info) {
@@ -25,7 +50,11 @@ Napi::Value CreateModel(const Napi::CallbackInfo &info) {
   result.Set("error", Napi::Number::New(env, static_cast<int>(error)));
 
   if (error == AIC_ERROR_CODE_SUCCESS && model != nullptr) {
-    result.Set("model", Napi::External<AicModel>::New(env, model));
+    // Add finalizer that automatically destroys the model when GC'd
+    auto finalizer = [](Napi::Env env, AicModel *data) {
+      SafeDestroyModel(data);
+    };
+    result.Set("model", Napi::External<AicModel>::New(env, model, finalizer));
   } else {
     result.Set("model", env.Null());
   }
@@ -41,9 +70,7 @@ Napi::Value DestroyModel(const Napi::CallbackInfo &info) {
   }
 
   AicModel *model = info[0].As<Napi::External<AicModel>>().Data();
-  if (model) {
-    aic_model_destroy(model);
-  }
+  SafeDestroyModel(model);
 
   return env.Null();
 }
@@ -75,8 +102,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
             uint16_t num_channels = info[2].As<Napi::Number>().Uint32Value();
             size_t num_frames = info[3].As<Napi::Number>().Uint32Value();
             bool variable_frames = info[4].As<Napi::Boolean>().Value();
-            AicErrorCode error = aic_model_initialize(model, sample_rate,
-                                                      num_channels, num_frames, variable_frames);
+            AicErrorCode error = aic_model_initialize(
+                model, sample_rate, num_channels, num_frames, variable_frames);
             return Napi::Number::New(env, static_cast<int>(error));
           }));
 
@@ -109,6 +136,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
             Napi::Float32Array array = info[1].As<Napi::Float32Array>();
             uint16_t num_channels = info[2].As<Napi::Number>().Uint32Value();
             size_t num_frames = info[3].As<Napi::Number>().Uint32Value();
+
             float *data = array.Data();
             AicErrorCode error = aic_model_process_interleaved(
                 model, data, num_channels, num_frames);
@@ -134,7 +162,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
             for (uint16_t i = 0; i < num_channels; i++) {
               Napi::Value val = arrays[i];
               if (!val.IsTypedArray()) {
-                Napi::TypeError::New(env, "Expected Float32Array")
+                Napi::TypeError::New(env, "Expected Float32Array for each channel")
                     .ThrowAsJavaScriptException();
                 return env.Null();
               }
@@ -230,26 +258,27 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
             return result;
           }));
 
-  exports.Set("getOptimalNumFrames",
-              Napi::Function::New(
-                  env, [](const Napi::CallbackInfo &info) -> Napi::Value {
-                    Napi::Env env = info.Env();
-                    if (!info[0].IsExternal()) {
-                      Napi::TypeError::New(env, "Expected model handle")
-                          .ThrowAsJavaScriptException();
-                      return env.Null();
-                    }
-                    AicModel *model =
-                        info[0].As<Napi::External<AicModel>>().Data();
-                    size_t num_frames = 0;
-                    AicErrorCode error =
-                        aic_get_optimal_num_frames(model, &num_frames);
-                    Napi::Object result = Napi::Object::New(env);
-                    result.Set("error",
-                               Napi::Number::New(env, static_cast<int>(error)));
-                    result.Set("numFrames", Napi::Number::New(env, num_frames));
-                    return result;
-                  }));
+  exports.Set(
+      "getOptimalNumFrames",
+      Napi::Function::New(
+          env, [](const Napi::CallbackInfo &info) -> Napi::Value {
+            Napi::Env env = info.Env();
+            if (!info[0].IsExternal()) {
+              Napi::TypeError::New(env, "Expected model handle")
+                  .ThrowAsJavaScriptException();
+              return env.Null();
+            }
+            AicModel *model = info[0].As<Napi::External<AicModel>>().Data();
+            uint32_t sampleRate = info[1].As<Napi::Number>().Int32Value();
+            size_t num_frames = 0;
+            AicErrorCode error =
+                aic_get_optimal_num_frames(model, sampleRate, &num_frames);
+            Napi::Object result = Napi::Object::New(env);
+            result.Set("error",
+                       Napi::Number::New(env, static_cast<int>(error)));
+            result.Set("numFrames", Napi::Number::New(env, num_frames));
+            return result;
+          }));
 
   return exports;
 }

@@ -24,6 +24,7 @@ function basicExample() {
       sampleRate: optimalSampleRate,
       numChannels: 1,
       numFrames: optimalNumFrames,
+      variableFrames: false,
     });
 
     console.log("Model initialized successfully");
@@ -77,7 +78,7 @@ function stereoExample() {
 
   try {
     const optimalSampleRate = model.getOptimalSampleRate();
-    const optimalNumFrames = model.getOptimalNumFrames();
+    const optimalNumFrames = model.getOptimalNumFrames(optimalSampleRate);
 
     // Initialize for stereo
     model.initialize({

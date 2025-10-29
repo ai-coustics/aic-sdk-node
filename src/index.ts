@@ -117,11 +117,27 @@ export interface AudioConfig {
 }
 
 /**
+ * Finalizer for automatic cleanup of native resources when the Model is garbage collected.
+ * This prevents memory leaks if users forget to call destroy().
+ */
+const modelFinalizer = new FinalizationRegistry((handle: any) => {
+  if (handle) {
+    try {
+      binding.destroyModel(handle);
+    } catch (error) {
+      // Silently ignore errors during finalization
+      // as the native resource may already be cleaned up
+    }
+  }
+});
+
+/**
  * High-level interface for the ai-coustics speech enhancement model
  */
 export class Model {
-  private handle: any;
+  private handle: unknown;
   private _isInitialized: boolean = false;
+  private _isDestroyed: boolean = false;
 
   /**
    * Creates a new audio enhancement model instance
@@ -137,6 +153,9 @@ export class Model {
       );
     }
     this.handle = result.model;
+
+    // Register for automatic cleanup when this object is garbage collected
+    modelFinalizer.register(this, this.handle, this);
   }
 
   /**
@@ -146,6 +165,7 @@ export class Model {
    * @throws Error if initialization fails
    */
   initialize(config: AudioConfig): void {
+    this.checkNotDestroyed();
     const error = binding.initialize(
       this.handle,
       config.sampleRate,
@@ -167,6 +187,7 @@ export class Model {
    * @throws Error if reset fails
    */
   reset(): void {
+    this.checkNotDestroyed();
     const error = binding.reset(this.handle);
     if (error !== ErrorCode.SUCCESS) {
       throw new Error(`Failed to reset model: ${this.getErrorMessage(error)}`);
@@ -185,6 +206,7 @@ export class Model {
     numChannels: number,
     numFrames: number,
   ): void {
+    this.checkNotDestroyed();
     const error = binding.processInterleaved(
       this.handle,
       audio,
@@ -211,6 +233,7 @@ export class Model {
     numChannels: number,
     numFrames: number,
   ): void {
+    this.checkNotDestroyed();
     const error = binding.processPlanar(
       this.handle,
       audio,
@@ -231,6 +254,7 @@ export class Model {
    * @throws Error if setting parameter fails
    */
   setParameter(parameter: Parameter, value: number): void {
+    this.checkNotDestroyed();
     const error = binding.setParameter(this.handle, parameter, value);
     if (error !== ErrorCode.SUCCESS) {
       throw new Error(
@@ -246,6 +270,7 @@ export class Model {
    * @throws Error if getting parameter fails
    */
   getParameter(parameter: Parameter): number {
+    this.checkNotDestroyed();
     const result = binding.getParameter(this.handle, parameter);
     if (result.error !== ErrorCode.SUCCESS) {
       throw new Error(
@@ -261,6 +286,7 @@ export class Model {
    * @throws Error if getting delay fails
    */
   getOutputDelay(): number {
+    this.checkNotDestroyed();
     const result = binding.getOutputDelay(this.handle);
     if (result.error !== ErrorCode.SUCCESS) {
       throw new Error(
@@ -276,6 +302,7 @@ export class Model {
    * @throws Error if getting sample rate fails
    */
   getOptimalSampleRate(): number {
+    this.checkNotDestroyed();
     const result = binding.getOptimalSampleRate(this.handle);
     if (result.error !== ErrorCode.SUCCESS) {
       throw new Error(
@@ -291,6 +318,7 @@ export class Model {
    * @throws Error if getting frame count fails
    */
   getOptimalNumFrames(sampleRate: number): number {
+    this.checkNotDestroyed();
     const result = binding.getOptimalNumFrames(this.handle, sampleRate);
     if (result.error !== ErrorCode.SUCCESS) {
       throw new Error(
@@ -308,13 +336,43 @@ export class Model {
   }
 
   /**
+   * Checks if the model has been destroyed
+   */
+  get isDestroyed(): boolean {
+    return this._isDestroyed;
+  }
+
+  /**
    * Releases all resources associated with the model
+   *
+   * Note: While the finalizer will automatically clean up native resources
+   * when this object is garbage collected, it's still recommended to call
+   * destroy() explicitly for deterministic cleanup, especially when working
+   * with limited resources or in long-running applications.
    */
   destroy(): void {
+    if (this._isDestroyed) {
+      return; // Already destroyed, nothing to do
+    }
+
     if (this.handle) {
+      // Unregister from finalizer to prevent double cleanup
+      modelFinalizer.unregister(this);
+
       binding.destroyModel(this.handle);
       this.handle = null;
       this._isInitialized = false;
+      this._isDestroyed = true;
+    }
+  }
+
+  /**
+   * Helper method to check if the model has been destroyed
+   * @private
+   */
+  private checkNotDestroyed(): void {
+    if (this._isDestroyed) {
+      throw new Error("Model has been destroyed and cannot be used");
     }
   }
 

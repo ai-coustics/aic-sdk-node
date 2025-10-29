@@ -14,7 +14,7 @@ function basicExample(): void {
   try {
     // Get optimal configuration
     const optimalSampleRate = model.getOptimalSampleRate();
-    const optimalNumFrames = model.getOptimalNumFrames();
+    const optimalNumFrames = model.getOptimalNumFrames(optimalSampleRate);
 
     console.log("Optimal sample rate:", optimalSampleRate, "Hz");
     console.log("Optimal num frames:", optimalNumFrames);
@@ -24,6 +24,7 @@ function basicExample(): void {
       sampleRate: optimalSampleRate,
       numChannels: 1,
       numFrames: optimalNumFrames,
+      variableFrames: false,
     };
 
     model.initialize(config);
