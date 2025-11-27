@@ -6,12 +6,12 @@ try {
   const arch = process.arch;
 
   const platformPackages = {
-    'linux-x64': '@ai-coustics/aic-sdk-linux-x64-gnu',
-    'linux-arm64': '@ai-coustics/aic-sdk-linux-arm64-gnu',
-    'darwin-x64': '@ai-coustics/aic-sdk-darwin-x64',
-    'darwin-arm64': '@ai-coustics/aic-sdk-darwin-arm64',
-    'win32-x64': '@ai-coustics/aic-sdk-win32-x64-msvc',
-    'win32-arm64': '@ai-coustics/aic-sdk-win32-arm64-msvc',
+    "linux-x64": "@ai-coustics/aic-sdk-linux-x64-gnu",
+    "linux-arm64": "@ai-coustics/aic-sdk-linux-arm64-gnu",
+    "darwin-x64": "@ai-coustics/aic-sdk-darwin-x64",
+    "darwin-arm64": "@ai-coustics/aic-sdk-darwin-arm64",
+    "win32-x64": "@ai-coustics/aic-sdk-win32-x64-msvc",
+    "win32-arm64": "@ai-coustics/aic-sdk-win32-arm64-msvc",
   };
 
   const platformKey = `${platform}-${arch}`;
@@ -22,17 +22,17 @@ try {
       native = require(platformPackage);
     } catch (e) {
       // Fall back to local binary
-      native = require('./index.node');
+      native = require("./index.node");
     }
   } else {
     // Fall back to local binary
-    native = require('./index.node');
+    native = require("./index.node");
   }
 } catch (e) {
   throw new Error(
     `Failed to load native binary for platform ${process.platform}-${process.arch}. ` +
-    `Supported platforms: Linux (x64/ARM64, GNU libc), macOS (x64/ARM64), Windows (x64/ARM64, MSVC). ` +
-    `Error: ${e.message}`
+      `Supported platforms: Linux (x64/ARM64, GNU libc), macOS (x64/ARM64), Windows (x64/ARM64, MSVC). ` +
+      `Error: ${e.message}`,
   );
 }
 
@@ -40,32 +40,32 @@ try {
  * Model types available in the SDK
  */
 const ModelType = {
-  QuailL48: 'QuailL48',
-  QuailL16: 'QuailL16',
-  QuailL8: 'QuailL8',
-  QuailS48: 'QuailS48',
-  QuailS16: 'QuailS16',
-  QuailS8: 'QuailS8',
-  QuailXS: 'QuailXS',
-  QuailXXS: 'QuailXXS',
-  QuailSTT: 'QuailSTT',
+  QuailL48: "QuailL48",
+  QuailL16: "QuailL16",
+  QuailL8: "QuailL8",
+  QuailS48: "QuailS48",
+  QuailS16: "QuailS16",
+  QuailS8: "QuailS8",
+  QuailXS: "QuailXS",
+  QuailXXS: "QuailXXS",
+  QuailSTT: "QuailSTT",
 };
 
 /**
  * Enhancement parameters
  */
 const EnhancementParameter = {
-  Bypass: 'Bypass',
-  EnhancementLevel: 'EnhancementLevel',
-  VoiceGain: 'VoiceGain',
+  Bypass: "Bypass",
+  EnhancementLevel: "EnhancementLevel",
+  VoiceGain: "VoiceGain",
 };
 
 /**
  * VAD (Voice Activity Detection) parameters
  */
 const VadParameter = {
-  LookbackBufferSize: 'LookbackBufferSize',
-  Sensitivity: 'Sensitivity',
+  LookbackBufferSize: "LookbackBufferSize",
+  Sensitivity: "Sensitivity",
 };
 
 /**
@@ -141,7 +141,13 @@ class Model {
    * @param {boolean} allowVariableFrames - Allow variable frame counts
    */
   initialize(sampleRate, numChannels, numFrames, allowVariableFrames = false) {
-    native.modelInitialize(this._model, sampleRate, numChannels, numFrames, allowVariableFrames);
+    native.modelInitialize(
+      this._model,
+      sampleRate,
+      numChannels,
+      numFrames,
+      allowVariableFrames,
+    );
   }
 
   /**
