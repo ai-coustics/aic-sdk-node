@@ -1,4 +1,4 @@
-# aic-sdk
+# ai-coustics Speech Enhancement SDK for Node.js
 
 Node.js bindings for the ai-coustics Speech Enhancement SDK.
 
