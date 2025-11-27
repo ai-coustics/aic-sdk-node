@@ -10,7 +10,7 @@ Add `NPM_TOKEN` to GitHub Secrets (Settings → Secrets → Actions).
 npm run version:update 0.2.0
 git add .
 git commit -m "chore: bump version to 0.2.0"
-git tag v0.2.0
+git tag 0.2.0
 git push origin main --tags
 ```
 

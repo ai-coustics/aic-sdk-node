@@ -21,4 +21,4 @@ for dir in npm/*/; do
 done
 
 echo "Updated to version $VERSION"
-echo "Next: git add . && git commit -m 'chore: bump version to $VERSION' && git tag v$VERSION && git push origin main --tags"
+echo "Next: git add . && git commit -m 'chore: bump version to $VERSION' && git tag $VERSION && git push origin main --tags"
