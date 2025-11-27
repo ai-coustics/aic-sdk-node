@@ -88,6 +88,7 @@ class Vad {
    * Set a VAD parameter
    * @param {number} parameter - Parameter constant from VadParameter
    * @param {number} value - Parameter value
+   * @throws {Error} If parameter setting fails (invalid parameter, out of range, etc.)
    */
   setParameter(parameter, value) {
     native.vadSetParameter(this._vad, parameter, value);
@@ -111,6 +112,7 @@ class Model {
    * Create a new model instance
    * @param {string} modelType - Model type from ModelType enum
    * @param {string} licenseKey - SDK license key
+   * @throws {Error} If model creation fails (invalid license, unsupported model type, etc.)
    */
   constructor(modelType, licenseKey) {
     this._model = native.modelNew(modelType, licenseKey);
@@ -139,6 +141,7 @@ class Model {
    * @param {number} numChannels - Number of audio channels
    * @param {number} numFrames - Number of frames per process call
    * @param {boolean} allowVariableFrames - Allow variable frame counts
+   * @throws {Error} If initialization fails (invalid parameters)
    */
   initialize(sampleRate, numChannels, numFrames, allowVariableFrames = false) {
     native.modelInitialize(
@@ -169,6 +172,7 @@ class Model {
    * Set an enhancement parameter
    * @param {number} parameter - Parameter constant from EnhancementParameter
    * @param {number} value - Parameter value
+   * @throws {Error} If parameter setting fails (invalid parameter, out of range, etc)
    */
   setParameter(parameter, value) {
     native.modelSetParameter(this._model, parameter, value);
@@ -188,6 +192,7 @@ class Model {
    * @param {Float32Array} buffer - Interleaved audio buffer
    * @param {number} numChannels - Number of channels
    * @param {number} numFrames - Number of frames
+   * @throws {Error} If processing fails (model not initialized, invalid buffer size, etc.)
    */
   processInterleaved(buffer, numChannels, numFrames) {
     native.modelProcessInterleaved(this._model, buffer, numChannels, numFrames);
@@ -195,7 +200,8 @@ class Model {
 
   /**
    * Process planar audio (separate buffer for each channel)
-   * @param {Float32Array[]} buffers - Array of audio buffers, one per channel
+   * @param {Float32Array[]} buffers - Array of audio buffers, one per channel (max 16 channels)
+   * @throws {Error} If processing fails (model not initialized, too many channels, invalid buffer size, etc.)
    */
   processPlanar(buffers) {
     native.modelProcessPlanar(this._model, buffers);
