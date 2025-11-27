@@ -3,8 +3,8 @@ Version 1.0 — 30 September 2025
 Copyright © 2025 ai-coustics GmbH. All rights reserved.
 
 0.  Definitions
-    “SDK”       means the files distributed inside the `sdk` folder
-                sdk/lib/* (e.g. libaic.a, libaic.so, libaic.dylib, aic.dll)
+    “SDK”       means the binaries downloaded during the build process
+	            (e.g. libaic.a, libaic.so, libaic.dylib, aic.dll)
                 together with the public C header aic.h.
     “Wrapper”   means the source code in this repository that links to
                 the SDK. The Wrapper is licensed separately under the
