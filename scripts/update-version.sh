@@ -20,5 +20,17 @@ for dir in npm/*/; do
   fi
 done
 
+# Update optionalDependencies versions in root package.json
+node -e "
+const fs = require('fs');
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+if (pkg.optionalDependencies) {
+  for (const dep in pkg.optionalDependencies) {
+    pkg.optionalDependencies[dep] = '$VERSION';
+  }
+  fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+}
+"
+
 echo "Updated to version $VERSION"
 echo "Next: git add . && git commit -m 'chore: bump version to $VERSION' && git tag $VERSION && git push origin main --tags"
