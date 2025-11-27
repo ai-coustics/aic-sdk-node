@@ -1,0 +1,14 @@
+{
+  "name": "@ai-coustics/aic-sdk-darwin-arm64",
+  "version": "0.1.0",
+  "description": "ai-coustics SDK native bindings for macOS ARM64 (Apple Silicon)",
+  "main": "index.node",
+  "author": "ai-coustics GmbH",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ai-coustics/aic-sdk-node.git"
+  },
+  "os": ["darwin"],
+  "cpu": ["arm64"]
+}

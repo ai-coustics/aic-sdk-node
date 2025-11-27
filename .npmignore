@@ -1,38 +1,40 @@
-# Source files (include compiled dist/ instead)
-src/
-tsconfig.json
+# Build artifacts and logs
+target/
+cargo.log
+cross.log
+*.log
 
-# Examples and documentation
+# Development files
+.claude/
+.git/
+.gitignore
+
+# Rust source (users don't need this)
+src/
+Cargo.toml
+Cargo.lock
+rust-toolchain.toml
+
+# Examples and tests
 examples/
 
-# Build artifacts not needed in package
-*.log
-*.tsbuildinfo
+# Node development
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # IDE
+.DS_Store
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Git
-.git/
-.gitignore
-
-# Testing
-coverage/
-.nyc_output/
-test/
-
-# SDK (will be downloaded during install)
-sdk/
-aic-sdk-*/
-tmp/
-
-# Misc
-.env
-.env.local
+# Only include built artifacts
+!index.js
+!index.node
+!README.md
+!LICENSE
+!package.json
