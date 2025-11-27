@@ -220,33 +220,50 @@ impl JsModel {
         let this = this.borrow();
         let mut model = this.model.lock().unwrap();
 
-        // Convert JS array of typed arrays to Vec of Handles
+        // Convert JS array of typed arrays to fixed-size array (max 16 channels)
         let length = buffers.len(&mut cx);
-        let mut handles: Vec<Handle<JsTypedArray<f32>>> = Vec::new();
+
+        // Limit to maximum 16 channels to avoid heap allocation
+        if length > 16 {
+            return cx.throw_error("Maximum 16 channels supported for planar processing");
+        }
+
+        // Use fixed-size arrays to avoid heap allocation
+        let mut handles: [Option<Handle<JsTypedArray<f32>>>; 16] = Default::default();
 
         for i in 0..length {
             let buffer: Handle<JsTypedArray<f32>> = buffers.get(&mut cx, i)?;
-            handles.push(buffer);
+            handles[i as usize] = Some(buffer);
         }
 
-        // Create a vector of mutable slices
+        // Create a fixed-size array of mutable slice pointers
         // SAFETY: We use unsafe here because Neon's borrow checker doesn't allow
         // getting multiple mutable slices at once, but we know:
         // 1. Each handle refers to a different JavaScript typed array
         // 2. The slices don't overlap
         // 3. The handles keep the buffers alive for the duration of this function
-        let mut slices: Vec<&mut [f32]> = Vec::new();
-        unsafe {
+        let mut slice_array: [&mut [f32]; 16] = unsafe {
             let cx_ptr = &mut cx as *mut FunctionContext;
-            for handle in handles.iter_mut() {
-                // Each iteration uses a fresh pointer to cx, avoiding borrow checker issues
-                let slice = handle.as_mut_slice(&mut *cx_ptr);
-                slices.push(slice);
+            let mut arr: [std::mem::MaybeUninit<&mut [f32]>; 16] =
+                std::mem::MaybeUninit::uninit().assume_init();
+
+            for i in 0..length as usize {
+                if let Some(ref mut handle) = handles[i] {
+                    // Each iteration uses a fresh pointer to cx, avoiding borrow checker issues
+                    let slice = handle.as_mut_slice(&mut *cx_ptr);
+                    arr[i] = std::mem::MaybeUninit::new(slice);
+                }
             }
-        }
+
+            // Transmute the initialized portion to the correct type
+            std::mem::transmute(arr)
+        };
+
+        // Use only the initialized portion of the array
+        let slice_refs = &mut slice_array[..length as usize];
 
         model
-            .process_planar(&mut slices)
+            .process_planar(slice_refs)
             .or_else(|e| cx.throw_error(format!("Failed to process planar audio: {}", e)))?;
 
         Ok(cx.undefined())
