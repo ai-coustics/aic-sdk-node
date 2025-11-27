@@ -1,6 +1,6 @@
 [package]
 name = "aic-sdk-node"
-version = "0.1.0"
+version = "0.10.0"
 description = "Node.js package of ai-coustics SDK"
 authors = ["ai-coustics GmbH"]
 license = "Apache-2.0"

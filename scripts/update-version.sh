@@ -11,6 +11,13 @@ VERSION="$1"
 # Update main package
 npm version "$VERSION" --no-git-tag-version
 
+# Update Cargo.toml
+if [ -f "Cargo.toml" ]; then
+  sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+  rm -f Cargo.toml.bak
+  echo "Updated Cargo.toml to version $VERSION"
+fi
+
 # Update all platform packages
 for dir in npm/*/; do
   if [ -f "$dir/package.json" ]; then
