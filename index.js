@@ -55,17 +55,17 @@ const ModelType = {
  * Enhancement parameters
  */
 const EnhancementParameter = {
-  Bypass: "Bypass",
-  EnhancementLevel: "EnhancementLevel",
-  VoiceGain: "VoiceGain",
+  Bypass: native.ENHANCEMENT_PARAM_BYPASS,
+  EnhancementLevel: native.ENHANCEMENT_PARAM_ENHANCEMENT_LEVEL,
+  VoiceGain: native.ENHANCEMENT_PARAM_VOICE_GAIN,
 };
 
 /**
  * VAD (Voice Activity Detection) parameters
  */
 const VadParameter = {
-  LookbackBufferSize: "LookbackBufferSize",
-  Sensitivity: "Sensitivity",
+  LookbackBufferSize: native.VAD_PARAM_LOOKBACK_BUFFER_SIZE,
+  Sensitivity: native.VAD_PARAM_SENSITIVITY,
 };
 
 /**
@@ -86,7 +86,7 @@ class Vad {
 
   /**
    * Set a VAD parameter
-   * @param {string} parameter - Parameter name from VadParameter
+   * @param {number} parameter - Parameter constant from VadParameter
    * @param {number} value - Parameter value
    */
   setParameter(parameter, value) {
@@ -95,7 +95,7 @@ class Vad {
 
   /**
    * Get a VAD parameter value
-   * @param {string} parameter - Parameter name from VadParameter
+   * @param {number} parameter - Parameter constant from VadParameter
    * @returns {number}
    */
   getParameter(parameter) {
@@ -167,7 +167,7 @@ class Model {
 
   /**
    * Set an enhancement parameter
-   * @param {string} parameter - Parameter name from EnhancementParameter
+   * @param {number} parameter - Parameter constant from EnhancementParameter
    * @param {number} value - Parameter value
    */
   setParameter(parameter, value) {
@@ -176,7 +176,7 @@ class Model {
 
   /**
    * Get an enhancement parameter value
-   * @param {string} parameter - Parameter name from EnhancementParameter
+   * @param {number} parameter - Parameter constant from EnhancementParameter
    * @returns {number}
    */
   getParameter(parameter) {

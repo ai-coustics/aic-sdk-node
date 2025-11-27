@@ -39,18 +39,22 @@ fn parse_model_type(cx: &mut FunctionContext, value: Handle<JsValue>) -> NeonRes
 // Enhancement Parameter Enum
 // ============================================================================
 
+// Enhancement parameter constants
+const ENHANCEMENT_PARAM_BYPASS: i32 = 0;
+const ENHANCEMENT_PARAM_ENHANCEMENT_LEVEL: i32 = 1;
+const ENHANCEMENT_PARAM_VOICE_GAIN: i32 = 2;
+
 fn parse_enhancement_parameter(
     cx: &mut FunctionContext,
     value: Handle<JsValue>,
 ) -> NeonResult<EnhancementParameter> {
-    let s = value.downcast_or_throw::<JsString, _>(cx)?;
-    let param_str = s.value(cx);
+    let param_num = value.downcast_or_throw::<JsNumber, _>(cx)?.value(cx) as i32;
 
-    match param_str.as_str() {
-        "Bypass" => Ok(EnhancementParameter::Bypass),
-        "EnhancementLevel" => Ok(EnhancementParameter::EnhancementLevel),
-        "VoiceGain" => Ok(EnhancementParameter::VoiceGain),
-        _ => cx.throw_error(format!("Invalid enhancement parameter: {}", param_str)),
+    match param_num {
+        ENHANCEMENT_PARAM_BYPASS => Ok(EnhancementParameter::Bypass),
+        ENHANCEMENT_PARAM_ENHANCEMENT_LEVEL => Ok(EnhancementParameter::EnhancementLevel),
+        ENHANCEMENT_PARAM_VOICE_GAIN => Ok(EnhancementParameter::VoiceGain),
+        _ => cx.throw_error(format!("Invalid enhancement parameter: {}", param_num)),
     }
 }
 
@@ -58,17 +62,20 @@ fn parse_enhancement_parameter(
 // VAD Parameter Enum
 // ============================================================================
 
+// VAD parameter constants
+const VAD_PARAM_LOOKBACK_BUFFER_SIZE: i32 = 0;
+const VAD_PARAM_SENSITIVITY: i32 = 1;
+
 fn parse_vad_parameter(
     cx: &mut FunctionContext,
     value: Handle<JsValue>,
 ) -> NeonResult<VadParameter> {
-    let s = value.downcast_or_throw::<JsString, _>(cx)?;
-    let param_str = s.value(cx);
+    let param_num = value.downcast_or_throw::<JsNumber, _>(cx)?.value(cx) as i32;
 
-    match param_str.as_str() {
-        "LookbackBufferSize" => Ok(VadParameter::LookbackBufferSize),
-        "Sensitivity" => Ok(VadParameter::Sensitivity),
-        _ => cx.throw_error(format!("Invalid VAD parameter: {}", param_str)),
+    match param_num {
+        VAD_PARAM_LOOKBACK_BUFFER_SIZE => Ok(VadParameter::LookbackBufferSize),
+        VAD_PARAM_SENSITIVITY => Ok(VadParameter::Sensitivity),
+        _ => cx.throw_error(format!("Invalid VAD parameter: {}", param_num)),
     }
 }
 
@@ -360,6 +367,20 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("vadIsSpeechDetected", JsVad::js_is_speech_detected)?;
     cx.export_function("vadSetParameter", JsVad::js_set_parameter)?;
     cx.export_function("vadGetParameter", JsVad::js_get_parameter)?;
+
+    // Export enhancement parameter constants
+    let bypass = cx.number(ENHANCEMENT_PARAM_BYPASS);
+    cx.export_value("ENHANCEMENT_PARAM_BYPASS", bypass)?;
+    let enhancement_level = cx.number(ENHANCEMENT_PARAM_ENHANCEMENT_LEVEL);
+    cx.export_value("ENHANCEMENT_PARAM_ENHANCEMENT_LEVEL", enhancement_level)?;
+    let voice_gain = cx.number(ENHANCEMENT_PARAM_VOICE_GAIN);
+    cx.export_value("ENHANCEMENT_PARAM_VOICE_GAIN", voice_gain)?;
+
+    // Export VAD parameter constants
+    let lookback = cx.number(VAD_PARAM_LOOKBACK_BUFFER_SIZE);
+    cx.export_value("VAD_PARAM_LOOKBACK_BUFFER_SIZE", lookback)?;
+    let sensitivity = cx.number(VAD_PARAM_SENSITIVITY);
+    cx.export_value("VAD_PARAM_SENSITIVITY", sensitivity)?;
 
     Ok(())
 }
