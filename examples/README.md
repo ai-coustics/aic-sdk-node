@@ -2,11 +2,18 @@
 
 ## Basic Usage
 
+Build locally:
+
+```bash
+npm install
+npm run build
+```
+
 Run the basic example:
 
 ```bash
 export AIC_SDK_LICENSE="your-license-key"
-npm run example
+npm run test
 ```
 
 Or directly:
