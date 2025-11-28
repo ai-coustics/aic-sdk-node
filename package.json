@@ -1,60 +1,48 @@
 {
   "name": "@ai-coustics/aic-sdk",
-  "version": "0.6.3",
-  "description": "Node.js bindings for ai-coustics speech enhancement SDK",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "version": "0.10.0",
+  "description": "Node.js package of ai-coustics SDK",
+  "main": "index.js",
   "scripts": {
-    "install": "node scripts/download-sdk.js && node-gyp rebuild",
-    "build": "tsc",
-    "prepare": "npm run build",
-    "test": "node test-basic.js",
-    "test:full": "node test-basic.js && npm run example:js && npm run example:ts",
-    "example:js": "node examples/example.js",
-    "example:ts": "npx ts-node examples/example.ts",
-    "example:ts-compile": "tsc examples/example.ts --outDir examples && node examples/example.js",
-    "clean": "rm -rf build dist sdk"
+    "test": "node examples/basic.js",
+    "build": "cargo build --release && cp target/release/libaic_sdk_node.so index.node 2>/dev/null || cp target/release/libaic_sdk_node.dylib index.node 2>/dev/null || cp target/release/aic_sdk_node.dll index.node 2>/dev/null || true",
+    "debug": "cargo build && cp target/debug/libaic_sdk_node.so index.node 2>/dev/null || cp target/debug/libaic_sdk_node.dylib index.node 2>/dev/null || cp target/debug/aic_sdk_node.dll index.node 2>/dev/null || true",
+    "version:update": "bash scripts/update-version.sh",
+    "prepublishOnly": "echo 'Use GitHub Actions to publish. See PUBLISHING.md for details.' && exit 1"
   },
+  "author": "ai-coustics GmbH",
+  "license": "Apache-2.0",
   "keywords": [
     "audio",
     "speech",
-    "enhancement",
     "voice",
+    "agent",
     "ai-coustics"
   ],
-  "author": "ai-coustics GmbH",
-  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://github.com/ai-coustics/aic-sdk-node#readme",
+  "bugs": {
+    "url": "https://github.com/ai-coustics/aic-sdk-node/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ai-coustics/aic-sdk-node.git"
+    "url": "git+https://github.com/ai-coustics/aic-sdk-node.git"
   },
-  "engines": {
-    "node": ">=14.0.0"
-  },
-  "os": [
-    "darwin",
-    "linux",
-    "win32"
+  "type": "commonjs",
+  "files": [
+    "index.js",
+    "index.node",
+    "README.md",
+    "LICENSE"
   ],
-  "cpu": [
-    "x64",
-    "arm64"
-  ],
-  "dependencies": {
-    "node-addon-api": "^7.0.0",
-    "node-gyp": "^10.0.0",
-    "tar": "^6.2.0"
+  "optionalDependencies": {
+    "@ai-coustics/aic-sdk-linux-x64-gnu": "0.10.0",
+    "@ai-coustics/aic-sdk-linux-arm64-gnu": "0.10.0",
+    "@ai-coustics/aic-sdk-darwin-x64": "0.10.0",
+    "@ai-coustics/aic-sdk-darwin-arm64": "0.10.0",
+    "@ai-coustics/aic-sdk-win32-x64-msvc": "0.10.0",
+    "@ai-coustics/aic-sdk-win32-arm64-msvc": "0.10.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.0.0"
-  },
-  "files": [
-    "dist",
-    "binding.gyp",
-    "scripts",
-    "src/binding.cc"
-  ],
-  "gypfile": true
+    "@neon-rs/cli": "0.1.82"
+  }
 }

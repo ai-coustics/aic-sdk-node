@@ -1,0 +1,173 @@
+name: Build and Publish
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+# Ensure tagged releases only happen from main branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x64-gnu
+          # Linux ARM64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            platform: linux-arm64-gnu
+          # macOS x64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            platform: darwin-x64
+          # macOS ARM64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            platform: darwin-arm64
+          # Windows x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: win32-x64-msvc
+          # Windows ARM64
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            platform: win32-arm64-msvc
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.platform == 'linux-arm64-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          echo "[target.aarch64-unknown-linux-gnu]" >> ~/.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build native module
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Copy binary to platform package
+        shell: bash
+        run: |
+          mkdir -p npm/${{ matrix.platform }}
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp target/${{ matrix.target }}/release/aic_sdk_node.dll npm/${{ matrix.platform }}/index.node
+          elif [[ "${{ matrix.target }}" == *"darwin"* ]]; then
+            cp target/${{ matrix.target }}/release/libaic_sdk_node.dylib npm/${{ matrix.platform }}/index.node
+          else
+            cp target/${{ matrix.target }}/release/libaic_sdk_node.so npm/${{ matrix.platform }}/index.node
+          fi
+
+      - name: Upload platform binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: npm/${{ matrix.platform }}/index.node
+          retention-days: 1
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    if: "!startsWith(github.ref, 'refs/tags/')"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download Linux x64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x64-gnu
+          path: .
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: npm test
+        env:
+          AIC_SDK_LICENSE: ${{ secrets.AIC_SDK_LICENSE }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Only publish when pushing a version tag
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main branch
+        run: |
+          if ! git branch -r --contains ${{ github.ref }} | grep -q 'origin/main'; then
+            echo "Error: Tag ${{ github.ref }} is not on the main branch"
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Copy binaries to platform packages
+        run: |
+          for platform in linux-x64-gnu linux-arm64-gnu darwin-x64 darwin-arm64 win32-x64-msvc win32-arm64-msvc; do
+            cp artifacts/$platform/index.node npm/$platform/
+          done
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for platform in linux-x64-gnu linux-arm64-gnu darwin-x64 darwin-arm64 win32-x64-msvc win32-arm64-msvc; do
+            cd npm/$platform
+            npm publish --access public
+            cd ../..
+          done
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

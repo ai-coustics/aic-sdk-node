@@ -1,0 +1,18 @@
+{
+  "name": "@ai-coustics/aic-sdk-win32-x64-msvc",
+  "version": "0.10.0",
+  "description": "ai-coustics SDK native bindings for Windows x64 (MSVC)",
+  "main": "index.node",
+  "author": "ai-coustics GmbH",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ai-coustics/aic-sdk-node.git"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ]
+}
