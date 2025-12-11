@@ -58,7 +58,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
