@@ -30,9 +30,9 @@ dependencies = [
 
 [[package]]
 name = "aic-sdk"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e18cb1fe4534e5bf44bff0150e0b475b255c5e8885832906bdfddde68746433a"
+checksum = "9a1c1ac20256c9b726b4e748b6b00d17917a7e17451e842172d7b2f131a81107"
 dependencies = [
  "aic-sdk-sys",
  "thiserror",
@@ -40,7 +40,7 @@ dependencies = [
 
 [[package]]
 name = "aic-sdk-node"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "aic-sdk",
  "neon",
@@ -48,9 +48,9 @@ dependencies = [
 
 [[package]]
 name = "aic-sdk-sys"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81b962e09a53d4dba7a26d388ac8d7478b18ddc2999d412ee65ada1646eba526"
+checksum = "29f934b73d274650d8191737782a4e2a34855101eff372d05e8c51aee5148e53"
 dependencies = [
  "bindgen",
  "flate2",

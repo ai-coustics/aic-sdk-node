@@ -46,9 +46,13 @@ const ModelType = {
   QuailS48: "QuailS48",
   QuailS16: "QuailS16",
   QuailS8: "QuailS8",
-  QuailXS: "QuailXS",
-  QuailXXS: "QuailXXS",
-  QuailSTT: "QuailSTT",
+  QuailXs: "QuailXs",
+  QuailXxs: "QuailXxs",
+  QuailSttL16: "QuailSttL16",
+  QuailSttL8: "QuailSttL8",
+  QuailSttS16: "QuailSttS16",
+  QuailSttS8: "QuailSttS8",
+  QuailVfSttL16: "QuailVfSttL16",
 };
 
 /**

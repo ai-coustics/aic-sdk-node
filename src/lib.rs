@@ -28,9 +28,13 @@ fn parse_model_type(cx: &mut FunctionContext, value: Handle<JsValue>) -> NeonRes
         "QuailS48" => Ok(ModelType::QuailS48),
         "QuailS16" => Ok(ModelType::QuailS16),
         "QuailS8" => Ok(ModelType::QuailS8),
-        "QuailXS" => Ok(ModelType::QuailXS),
-        "QuailXXS" => Ok(ModelType::QuailXXS),
-        "QuailSTT" => Ok(ModelType::QuailSTT),
+        "QuailXs" => Ok(ModelType::QuailXs),
+        "QuailXxs" => Ok(ModelType::QuailXxs),
+        "QuailSttL16" => Ok(ModelType::QuailSttL16),
+        "QuailSttL8" => Ok(ModelType::QuailSttL8),
+        "QuailSttS16" => Ok(ModelType::QuailSttS16),
+        "QuailSttS8" => Ok(ModelType::QuailSttS8),
+        "QuailVfSttL16" => Ok(ModelType::QuailVfSttL16),
         _ => cx.throw_error(format!("Invalid model type: {}", model_str)),
     }
 }
@@ -204,8 +208,6 @@ impl JsModel {
     fn js_process_interleaved(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<RefCell<JsModel>>>(0)?;
         let mut buffer = cx.argument::<JsTypedArray<f32>>(1)?;
-        let num_channels = cx.argument::<JsNumber>(2)?.value(&mut cx) as u16;
-        let num_frames = cx.argument::<JsNumber>(3)?.value(&mut cx) as usize;
 
         let this = this.borrow();
         let mut model = this.model.lock().unwrap();
@@ -214,7 +216,7 @@ impl JsModel {
         let audio_data = buffer.as_mut_slice(&mut cx);
 
         model
-            .process_interleaved(audio_data, num_channels, num_frames)
+            .process_interleaved(audio_data)
             .or_else(|e| cx.throw_error(format!("Failed to process audio: {}", e)))?;
 
         Ok(cx.undefined())
@@ -279,7 +281,7 @@ impl JsModel {
     fn js_create_vad(mut cx: FunctionContext) -> JsResult<JsBox<RefCell<JsVad>>> {
         let this = cx.argument::<JsBox<RefCell<JsModel>>>(0)?;
         let this = this.borrow();
-        let model = this.model.lock().unwrap();
+        let mut model = this.model.lock().unwrap();
 
         let vad = model.create_vad();
 
