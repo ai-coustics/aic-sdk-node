@@ -28,9 +28,13 @@ fn parse_model_type(cx: &mut FunctionContext, value: Handle<JsValue>) -> NeonRes
         "QuailS48" => Ok(ModelType::QuailS48),
         "QuailS16" => Ok(ModelType::QuailS16),
         "QuailS8" => Ok(ModelType::QuailS8),
-        "QuailXS" => Ok(ModelType::QuailXS),
-        "QuailXXS" => Ok(ModelType::QuailXXS),
-        "QuailSTT" => Ok(ModelType::QuailSTT),
+        "QuailXs" => Ok(ModelType::QuailXs),
+        "QuailXxs" => Ok(ModelType::QuailXxs),
+        "QuailSttL16" => Ok(ModelType::QuailSttL16),
+        "QuailSttL8" => Ok(ModelType::QuailSttL8),
+        "QuailSttS16" => Ok(ModelType::QuailSttS16),
+        "QuailSttS8" => Ok(ModelType::QuailSttS8),
+        "QuailVfSttL16" => Ok(ModelType::QuailVfSttL16),
         _ => cx.throw_error(format!("Invalid model type: {}", model_str)),
     }
 }
@@ -63,8 +67,9 @@ fn parse_enhancement_parameter(
 // ============================================================================
 
 // VAD parameter constants
-const VAD_PARAM_LOOKBACK_BUFFER_SIZE: i32 = 0;
+const VAD_PARAM_SPEECH_HOLD_DURATION: i32 = 0;
 const VAD_PARAM_SENSITIVITY: i32 = 1;
+const VAD_PARAM_MINIMUM_SPEECH_DURATION: i32 = 2;
 
 fn parse_vad_parameter(
     cx: &mut FunctionContext,
@@ -73,8 +78,9 @@ fn parse_vad_parameter(
     let param_num = value.downcast_or_throw::<JsNumber, _>(cx)?.value(cx) as i32;
 
     match param_num {
-        VAD_PARAM_LOOKBACK_BUFFER_SIZE => Ok(VadParameter::LookbackBufferSize),
+        VAD_PARAM_SPEECH_HOLD_DURATION => Ok(VadParameter::SpeechHoldDuration),
         VAD_PARAM_SENSITIVITY => Ok(VadParameter::Sensitivity),
+        VAD_PARAM_MINIMUM_SPEECH_DURATION => Ok(VadParameter::MinimumSpeechDuration),
         _ => cx.throw_error(format!("Invalid VAD parameter: {}", param_num)),
     }
 }
@@ -204,8 +210,6 @@ impl JsModel {
     fn js_process_interleaved(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<RefCell<JsModel>>>(0)?;
         let mut buffer = cx.argument::<JsTypedArray<f32>>(1)?;
-        let num_channels = cx.argument::<JsNumber>(2)?.value(&mut cx) as u16;
-        let num_frames = cx.argument::<JsNumber>(3)?.value(&mut cx) as usize;
 
         let this = this.borrow();
         let mut model = this.model.lock().unwrap();
@@ -214,7 +218,7 @@ impl JsModel {
         let audio_data = buffer.as_mut_slice(&mut cx);
 
         model
-            .process_interleaved(audio_data, num_channels, num_frames)
+            .process_interleaved(audio_data)
             .or_else(|e| cx.throw_error(format!("Failed to process audio: {}", e)))?;
 
         Ok(cx.undefined())
@@ -279,7 +283,7 @@ impl JsModel {
     fn js_create_vad(mut cx: FunctionContext) -> JsResult<JsBox<RefCell<JsVad>>> {
         let this = cx.argument::<JsBox<RefCell<JsModel>>>(0)?;
         let this = this.borrow();
-        let model = this.model.lock().unwrap();
+        let mut model = this.model.lock().unwrap();
 
         let vad = model.create_vad();
 
@@ -377,10 +381,12 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_value("ENHANCEMENT_PARAM_VOICE_GAIN", voice_gain)?;
 
     // Export VAD parameter constants
-    let lookback = cx.number(VAD_PARAM_LOOKBACK_BUFFER_SIZE);
-    cx.export_value("VAD_PARAM_LOOKBACK_BUFFER_SIZE", lookback)?;
+    let lookback = cx.number(VAD_PARAM_SPEECH_HOLD_DURATION);
+    cx.export_value("VAD_PARAM_SPEECH_HOLD_DURATION", lookback)?;
     let sensitivity = cx.number(VAD_PARAM_SENSITIVITY);
     cx.export_value("VAD_PARAM_SENSITIVITY", sensitivity)?;
+    let min_speech_duration = cx.number(VAD_PARAM_MINIMUM_SPEECH_DURATION);
+    cx.export_value("VAD_PARAM_MINIMUM_SPEECH_DURATION", min_speech_duration)?;
 
     Ok(())
 }

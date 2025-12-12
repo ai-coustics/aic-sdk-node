@@ -1,6 +1,6 @@
 [package]
 name = "aic-sdk-node"
-version = "0.10.0"
+version = "0.12.0"
 description = "Node.js package of ai-coustics SDK"
 authors = ["ai-coustics GmbH"]
 license = "Apache-2.0"
@@ -19,5 +19,5 @@ panic = "abort"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aic-sdk = { version = "0.10.0", features = ["download-lib"] }
+aic-sdk = { version = "0.12.0", features = ["download-lib"] }
 neon = "1.1"

@@ -46,9 +46,13 @@ const ModelType = {
   QuailS48: "QuailS48",
   QuailS16: "QuailS16",
   QuailS8: "QuailS8",
-  QuailXS: "QuailXS",
-  QuailXXS: "QuailXXS",
-  QuailSTT: "QuailSTT",
+  QuailXs: "QuailXs",
+  QuailXxs: "QuailXxs",
+  QuailSttL16: "QuailSttL16",
+  QuailSttL8: "QuailSttL8",
+  QuailSttS16: "QuailSttS16",
+  QuailSttS8: "QuailSttS8",
+  QuailVfSttL16: "QuailVfSttL16",
 };
 
 /**
@@ -64,8 +68,9 @@ const EnhancementParameter = {
  * VAD (Voice Activity Detection) parameters
  */
 const VadParameter = {
-  LookbackBufferSize: native.VAD_PARAM_LOOKBACK_BUFFER_SIZE,
+  SpeechHoldDuration: native.VAD_PARAM_SPEECH_HOLD_DURATION,
   Sensitivity: native.VAD_PARAM_SENSITIVITY,
+  MinimumSpeechDuration: native.VAD_PARAM_MINIMUM_SPEECH_DURATION,
 };
 
 /**

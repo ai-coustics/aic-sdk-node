@@ -98,13 +98,18 @@ try {
 // Create and use VAD with error handling
 try {
   const vad = model.createVad();
+  vad.setParameter(VadParameter.SpeechHoldDuration, 0.1);
   vad.setParameter(VadParameter.Sensitivity, 7.0);
-  vad.setParameter(VadParameter.LookbackBufferSize, 5.0);
+  vad.setParameter(VadParameter.MinimumSpeechDuration, 0.5);
 
+  console.log(
+    "VAD Speech Hold Duration:",
+    vad.getParameter(VadParameter.SpeechHoldDuration),
+  );
   console.log("VAD Sensitivity:", vad.getParameter(VadParameter.Sensitivity));
   console.log(
-    "VAD Lookback Buffer Size:",
-    vad.getParameter(VadParameter.LookbackBufferSize),
+    "VAD Minimum Speech Duration:",
+    vad.getParameter(VadParameter.MinimumSpeechDuration),
   );
   console.log("Speech Detected:", vad.isSpeechDetected());
 } catch (error) {
