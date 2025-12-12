@@ -68,8 +68,9 @@ const EnhancementParameter = {
  * VAD (Voice Activity Detection) parameters
  */
 const VadParameter = {
-  LookbackBufferSize: native.VAD_PARAM_LOOKBACK_BUFFER_SIZE,
+  SpeechHoldDuration: native.VAD_PARAM_SPEECH_HOLD_DURATION,
   Sensitivity: native.VAD_PARAM_SENSITIVITY,
+  MinimumSpeechDuration: native.VAD_PARAM_MINIMUM_SPEECH_DURATION,
 };
 
 /**

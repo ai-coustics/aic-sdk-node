@@ -1,6 +1,6 @@
 {
   "name": "@ai-coustics/aic-sdk",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Node.js package of ai-coustics SDK",
   "main": "index.js",
   "scripts": {
@@ -35,12 +35,12 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@ai-coustics/aic-sdk-linux-x64-gnu": "0.11.0",
-    "@ai-coustics/aic-sdk-linux-arm64-gnu": "0.11.0",
-    "@ai-coustics/aic-sdk-darwin-x64": "0.11.0",
-    "@ai-coustics/aic-sdk-darwin-arm64": "0.11.0",
-    "@ai-coustics/aic-sdk-win32-x64-msvc": "0.11.0",
-    "@ai-coustics/aic-sdk-win32-arm64-msvc": "0.11.0"
+    "@ai-coustics/aic-sdk-linux-x64-gnu": "0.12.0",
+    "@ai-coustics/aic-sdk-linux-arm64-gnu": "0.12.0",
+    "@ai-coustics/aic-sdk-darwin-x64": "0.12.0",
+    "@ai-coustics/aic-sdk-darwin-arm64": "0.12.0",
+    "@ai-coustics/aic-sdk-win32-x64-msvc": "0.12.0",
+    "@ai-coustics/aic-sdk-win32-arm64-msvc": "0.12.0"
   },
   "devDependencies": {
     "@neon-rs/cli": "0.1.82"

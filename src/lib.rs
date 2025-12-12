@@ -67,8 +67,9 @@ fn parse_enhancement_parameter(
 // ============================================================================
 
 // VAD parameter constants
-const VAD_PARAM_LOOKBACK_BUFFER_SIZE: i32 = 0;
+const VAD_PARAM_SPEECH_HOLD_DURATION: i32 = 0;
 const VAD_PARAM_SENSITIVITY: i32 = 1;
+const VAD_PARAM_MINIMUM_SPEECH_DURATION: i32 = 2;
 
 fn parse_vad_parameter(
     cx: &mut FunctionContext,
@@ -77,8 +78,9 @@ fn parse_vad_parameter(
     let param_num = value.downcast_or_throw::<JsNumber, _>(cx)?.value(cx) as i32;
 
     match param_num {
-        VAD_PARAM_LOOKBACK_BUFFER_SIZE => Ok(VadParameter::LookbackBufferSize),
+        VAD_PARAM_SPEECH_HOLD_DURATION => Ok(VadParameter::SpeechHoldDuration),
         VAD_PARAM_SENSITIVITY => Ok(VadParameter::Sensitivity),
+        VAD_PARAM_MINIMUM_SPEECH_DURATION => Ok(VadParameter::MinimumSpeechDuration),
         _ => cx.throw_error(format!("Invalid VAD parameter: {}", param_num)),
     }
 }
@@ -379,10 +381,12 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_value("ENHANCEMENT_PARAM_VOICE_GAIN", voice_gain)?;
 
     // Export VAD parameter constants
-    let lookback = cx.number(VAD_PARAM_LOOKBACK_BUFFER_SIZE);
-    cx.export_value("VAD_PARAM_LOOKBACK_BUFFER_SIZE", lookback)?;
+    let lookback = cx.number(VAD_PARAM_SPEECH_HOLD_DURATION);
+    cx.export_value("VAD_PARAM_SPEECH_HOLD_DURATION", lookback)?;
     let sensitivity = cx.number(VAD_PARAM_SENSITIVITY);
     cx.export_value("VAD_PARAM_SENSITIVITY", sensitivity)?;
+    let min_speech_duration = cx.number(VAD_PARAM_MINIMUM_SPEECH_DURATION);
+    cx.export_value("VAD_PARAM_MINIMUM_SPEECH_DURATION", min_speech_duration)?;
 
     Ok(())
 }

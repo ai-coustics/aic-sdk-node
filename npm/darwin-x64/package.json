@@ -1,6 +1,6 @@
 {
   "name": "@ai-coustics/aic-sdk-darwin-x64",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "ai-coustics SDK native bindings for macOS x64",
   "main": "index.node",
   "author": "ai-coustics GmbH",
