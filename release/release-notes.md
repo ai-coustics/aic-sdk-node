@@ -1,6 +1,6 @@
 # Release Notes
 
-Version 1.0.0 represents a complete rewrite of the Node.js SDK, now built on the new Rust-based aic-sdk for a safer, faster, and more idiomatic interface. This release comes with a number of new features and several breaking changes. Most notably, the library no longer includes any models, which significantly reduces the package size. The models are now available separately for download at https://artifacts.ai-coustics.io.
+Version 0.13.0 represents a complete rewrite of the Node.js SDK, now built on the new Rust-based aic-sdk for a safer, faster, and more idiomatic interface. This release comes with a number of new features and several breaking changes. Most notably, the library no longer includes any models, which significantly reduces the package size. The models are now available separately for download at https://artifacts.ai-coustics.io.
 
 ### Important Changes
 
