@@ -63,7 +63,7 @@ try {
   processorContext.setParameter(ProcessorParameter.VoiceGain, 1.5);
 } catch (error) {
   console.error("Failed to set parameters:", error.message);
-  process.exit(1);
+  // Failing is fine here, so do not end the process
 }
 
 console.log(
@@ -85,6 +85,19 @@ try {
   console.log("Processed interleaved audio");
 } catch (error) {
   console.error("Failed to process interleaved audio:", error.message);
+  process.exit(1);
+}
+
+// Process sequential audio
+const sequentialBuffer = new Float32Array(2 * numFrames);
+for (let i = 0; i < sequentialBuffer.length; i++) {
+  sequentialBuffer[i] = Math.random() * 0.1;
+}
+try {
+  processor.processSequential(sequentialBuffer);
+  console.log("Processed sequential audio");
+} catch (error) {
+  console.error("Failed to process sequential audio:", error.message);
   process.exit(1);
 }
 
