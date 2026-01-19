@@ -1,6 +1,6 @@
 {
   "name": "@ai-coustics/aic-sdk-linux-x64-gnu",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "ai-coustics SDK native bindings for Linux x64 (GNU)",
   "main": "index.node",
   "author": "ai-coustics GmbH",
