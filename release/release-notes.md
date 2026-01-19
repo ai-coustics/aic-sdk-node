@@ -4,7 +4,7 @@ This release comes with a number of new features and several breaking changes. M
 
 ### Important Changes
 
-- **New license keys required**: License keys previously generated in the [developer portal](https://developers.ai-coustics.com) will no longer work. New license keys must be generated.
+- **New license keys required**: License keys previously generated in the [developer portal](https://developers.ai-coustics.io) will no longer work. New license keys must be generated.
 - **Model naming changes**:
   - Quail-STT models are now called "Quail" – These models are optimized for human-to-machine enhancement (e.g., Speech-to-Text applications).
   - Quail models are now called "Sparrow" – These models are optimized for human-to-human enhancement (e.g., voice calls, conferencing).
