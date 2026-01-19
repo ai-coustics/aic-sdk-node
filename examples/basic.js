@@ -10,7 +10,7 @@ const {
 // Check for license key
 if (!process.env.AIC_SDK_LICENSE) {
   console.error("Error: AIC_SDK_LICENSE environment variable not set");
-  console.error("Get your license key from https://developers.ai-coustics.com");
+  console.error("Get your license key from https://developers.ai-coustics.io");
   process.exit(1);
 }
 
