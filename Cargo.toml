@@ -11,12 +11,12 @@ version = "0.13.0"
 [lib]
 crate-type = ["cdylib"]
 
-[profile.release]
-panic = "abort"
-
-[profile.dev]
-panic = "abort"
-
 [dependencies]
 aic-sdk = { version = "0.13.1", features = ["download-lib", "download-model"] }
 neon = "1.1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
