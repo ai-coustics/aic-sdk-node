@@ -1,9 +1,10 @@
 const {
   Model,
-  ModelType,
-  EnhancementParameter,
+  Processor,
+  ProcessorParameter,
   VadParameter,
   getVersion,
+  getCompatibleModelVersion,
 } = require("..");
 
 // Check for license key
@@ -14,90 +15,120 @@ if (!process.env.AIC_SDK_LICENSE) {
 }
 
 console.log("SDK Version:", getVersion());
+console.log("Compatible Model Version:", getCompatibleModelVersion());
 
-// Create a model with error handling
+// Download and load a model
 let model;
 try {
-  model = new Model(ModelType.QuailS48, process.env.AIC_SDK_LICENSE);
+  const modelPath = Model.download("quail-vf-l-16khz", "/tmp/aic-models");
+  console.log("Model downloaded to:", modelPath);
+  model = Model.fromFile(modelPath);
+  console.log("Model ID:", model.getId());
 } catch (error) {
-  console.error(error.message);
+  console.error("Failed to load model:", error.message);
   process.exit(1);
 }
 
 // Get optimal settings
-const sampleRate = model.optimalSampleRate();
-const numFrames = model.optimalNumFrames(sampleRate);
+const sampleRate = model.getOptimalSampleRate();
+const numFrames = model.getOptimalNumFrames(sampleRate);
 
 console.log("Sample Rate:", sampleRate);
 console.log("Num Frames:", numFrames);
 
-// Initialize for stereo audio with error handling
+// Create processor
+let processor;
 try {
-  model.initialize(sampleRate, 2, numFrames, false);
-  console.log("Output Delay:", model.outputDelay(), "samples");
+  processor = new Processor(model, process.env.AIC_SDK_LICENSE);
 } catch (error) {
-  console.error(error.message);
+  console.error("Failed to create processor:", error.message);
   process.exit(1);
 }
 
+// Initialize for stereo audio
+try {
+  processor.initialize(sampleRate, 2, numFrames, false);
+} catch (error) {
+  console.error("Failed to initialize processor:", error.message);
+  process.exit(1);
+}
+
+// Get processor context for parameter control
+const processorContext = processor.getProcessorContext();
+console.log("Output Delay:", processorContext.getOutputDelay(), "samples");
+
 // Set enhancement parameters
 try {
-  model.setParameter(EnhancementParameter.EnhancementLevel, 0.7);
-  model.setParameter(EnhancementParameter.VoiceGain, 1.5);
+  processorContext.setParameter(ProcessorParameter.EnhancementLevel, 0.7);
+  processorContext.setParameter(ProcessorParameter.VoiceGain, 1.5);
 } catch (error) {
-  console.error(error.message);
-  process.exit(1);
+  console.error("Failed to set parameters:", error.message);
+  // Failing is fine here, so do not end the process
 }
 
 console.log(
   "Enhancement Level:",
-  model.getParameter(EnhancementParameter.EnhancementLevel),
+  processorContext.getParameter(ProcessorParameter.EnhancementLevel),
 );
-console.log("Voice Gain:", model.getParameter(EnhancementParameter.VoiceGain));
+console.log(
+  "Voice Gain:",
+  processorContext.getParameter(ProcessorParameter.VoiceGain),
+);
 
-// Process interleaved audio with error handling
+// Process interleaved audio
 const interleavedBuffer = new Float32Array(2 * numFrames);
-// Fill with test data
 for (let i = 0; i < interleavedBuffer.length; i++) {
   interleavedBuffer[i] = Math.random() * 0.1;
 }
 try {
-  model.processInterleaved(interleavedBuffer, 2, numFrames);
+  processor.processInterleaved(interleavedBuffer);
   console.log("Processed interleaved audio");
 } catch (error) {
   console.error("Failed to process interleaved audio:", error.message);
-  // In real-time scenarios, you might want to:
-  // - Use the previous buffer
-  // - Skip this frame
-  // - Apply fallback processing
-  process.exit(1); // Exit for demonstration purposes
+  process.exit(1);
 }
 
-// Reset model
-model.reset();
+// Process sequential audio
+const sequentialBuffer = new Float32Array(2 * numFrames);
+for (let i = 0; i < sequentialBuffer.length; i++) {
+  sequentialBuffer[i] = Math.random() * 0.1;
+}
+try {
+  processor.processSequential(sequentialBuffer);
+  console.log("Processed sequential audio");
+} catch (error) {
+  console.error("Failed to process sequential audio:", error.message);
+  process.exit(1);
+}
 
-// Process planar audio with error handling
+// Reset processor state
+processorContext.reset();
+
+// Process planar audio
 const planarBuffers = [
   new Float32Array(numFrames), // Left channel
   new Float32Array(numFrames), // Right channel
 ];
-// Fill with test data
 for (let i = 0; i < numFrames; i++) {
   planarBuffers[0][i] = Math.random() * 0.1;
   planarBuffers[1][i] = Math.random() * 0.1;
 }
+console.log("Planar before L:", planarBuffers[0].slice(0, 8));
+console.log("Planar before R:", planarBuffers[1].slice(0, 8));
 try {
-  model.processPlanar(planarBuffers);
+  processor.processPlanar(planarBuffers);
+  processor.processPlanar(planarBuffers);
+  console.log("Planar after L:", planarBuffers[0].slice(0, 8));
+  console.log("Planar after R:", planarBuffers[1].slice(0, 8));
   console.log("Processed planar audio");
 } catch (error) {
   console.error("Failed to process planar audio:", error.message);
-  // Handle gracefully - maybe output silence or previous frame
-  process.exit(1); // Exit for demonstration purposes
+  process.exit(1);
 }
 
-// Create and use VAD with error handling
+// Use VAD (Voice Activity Detection)
 try {
-  const vad = model.createVad();
+  const vad = processor.getVadContext();
   vad.setParameter(VadParameter.SpeechHoldDuration, 0.1);
   vad.setParameter(VadParameter.Sensitivity, 7.0);
   vad.setParameter(VadParameter.MinimumSpeechDuration, 0.5);
@@ -113,7 +144,7 @@ try {
   );
   console.log("Speech Detected:", vad.isSpeechDetected());
 } catch (error) {
-  console.error(error.message);
+  console.error("Failed to use VAD:", error.message);
   process.exit(1);
 }
 
