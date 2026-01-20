@@ -31,7 +31,7 @@ impl Processor {
 
         // SAFETY: This function has no safety requirements.
         unsafe {
-            aic_sdk::set_sdk_id(3);
+            aic_sdk::set_sdk_id(4);
         }
 
         let processor = aic_sdk::Processor::new(&model.inner, &license_key)
