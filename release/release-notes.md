@@ -6,8 +6,8 @@ This release comes with a number of new features and several breaking changes. M
 
 - **New license keys required**: License keys previously generated in the [developer portal](https://developers.ai-coustics.io) will no longer work. New license keys must be generated.
 - **Model naming changes**:
-  - Quail-STT models are now called "Quail" – These models are optimized for human-to-machine enhancement (e.g., Speech-to-Text applications).
   - Quail models are now called "Sparrow" – These models are optimized for human-to-human enhancement (e.g., voice calls, conferencing).
+  - Quail-STT models are now called "Quail" – These models are optimized for human-to-machine enhancement (e.g., Speech-to-Text applications).
   - This naming change clarifies the distinction between STT-focused models and human-to-human communication models.
 - **API restructuring**: The API has been restructured to separate model data from processing instances. What was previously the `Model` class (which handled both model data and processing) has been split into:
   - `Model`: Now represents only the ML model data loaded from files.
@@ -57,7 +57,7 @@ This release comes with a number of new features and several breaking changes. M
 ### Migration
 
 ```javascript
-// Old (v0.x)
+// Old (0.12)
 const { Model, ModelType, EnhancementParameter, VadParameter } = require("@ai-coustics/aic-sdk");
 
 const model = new Model(ModelType.QuailL48, licenseKey);
@@ -71,7 +71,7 @@ if (vad.isSpeechDetected()) {
   console.log("Speech!");
 }
 
-// New (v1.0)
+// New (0.13)
 const { Model, Processor, ProcessorParameter, VadParameter } = require("@ai-coustics/aic-sdk");
 
 const modelPath = Model.download("sparrow-l-48khz", "/tmp/models");

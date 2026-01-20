@@ -1,6 +1,6 @@
 [package]
 authors = ["ai-coustics GmbH"]
-description = "Node.js package of ai-coustics SDK"
+description = "Node.js Bindings for ai-coustics SDK"
 edition = "2024"
 exclude = ["index.node"]
 license = "Apache-2.0"

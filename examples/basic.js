@@ -113,8 +113,13 @@ for (let i = 0; i < numFrames; i++) {
   planarBuffers[0][i] = Math.random() * 0.1;
   planarBuffers[1][i] = Math.random() * 0.1;
 }
+console.log("Planar before L:", planarBuffers[0].slice(0, 8));
+console.log("Planar before R:", planarBuffers[1].slice(0, 8));
 try {
   processor.processPlanar(planarBuffers);
+  processor.processPlanar(planarBuffers);
+  console.log("Planar after L:", planarBuffers[0].slice(0, 8));
+  console.log("Planar after R:", planarBuffers[1].slice(0, 8));
   console.log("Processed planar audio");
 } catch (error) {
   console.error("Failed to process planar audio:", error.message);
