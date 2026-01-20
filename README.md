@@ -2,7 +2,7 @@
 
 Node.js wrapper for the ai-coustics Speech Enhancement SDK.
 
-For comprehensive documentation, visit [docs.ai-coustics.com](https://docs.ai-coustics.io).
+For comprehensive documentation, visit [docs.ai-coustics.io](https://docs.ai-coustics.io).
 
 > [!NOTE]
 > This SDK requires a license key. Generate your key at [developers.ai-coustics.io](https://developers.ai-coustics.io).
@@ -165,7 +165,7 @@ See the [`basic.js`](examples/basic.js) file for a complete working example.
 
 ## Documentation
 
-- **Full Documentation**: [docs.ai-coustics.com](https://docs.ai-coustics.com)
+- **Full Documentation**: [docs.ai-coustics.io](https://docs.ai-coustics.io)
 - **Node.js API Reference**: See the [index.js](index.js) for detailed JSDoc documentation
 - **Available Models**: [artifacts.ai-coustics.io](https://artifacts.ai-coustics.io)
 
