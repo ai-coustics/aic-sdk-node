@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 use neon::{
@@ -25,7 +24,7 @@ impl Finalize for Processor {
 }
 
 impl Processor {
-    pub fn new(mut cx: FunctionContext) -> JsResult<JsBox<RefCell<Processor>>> {
+    pub fn new(mut cx: FunctionContext) -> JsResult<JsBox<Processor>> {
         let model = cx.argument::<JsBox<Model>>(0)?;
         let license_key = cx.argument::<JsString>(1)?.value(&mut cx);
 
@@ -37,19 +36,18 @@ impl Processor {
         let processor = aic_sdk::Processor::new(&model.inner, &license_key)
             .or_else(|e| cx.throw_error(e.to_string()))?;
 
-        Ok(cx.boxed(RefCell::new(Processor {
+        Ok(cx.boxed(Processor {
             inner: Arc::new(Mutex::new(processor)),
-        })))
+        }))
     }
 
     pub fn initialize(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-        let this = cx.argument::<JsBox<RefCell<Processor>>>(0)?;
+        let this = cx.argument::<JsBox<Processor>>(0)?;
         let sample_rate = cx.argument::<JsNumber>(1)?.value(&mut cx) as u32;
         let num_channels = cx.argument::<JsNumber>(2)?.value(&mut cx) as u16;
         let num_frames = cx.argument::<JsNumber>(3)?.value(&mut cx) as usize;
         let allow_variable_frames = cx.argument::<JsBoolean>(4)?.value(&mut cx);
 
-        let this = this.borrow();
         let mut processor = this.inner.lock().unwrap();
 
         let config = aic_sdk::ProcessorConfig {
@@ -67,10 +65,9 @@ impl Processor {
     }
 
     pub fn process_interleaved(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-        let this = cx.argument::<JsBox<RefCell<Processor>>>(0)?;
+        let this = cx.argument::<JsBox<Processor>>(0)?;
         let mut buffer = cx.argument::<JsTypedArray<f32>>(1)?;
 
-        let this = this.borrow();
         let mut processor = this.inner.lock().unwrap();
 
         let audio_data = buffer.as_mut_slice(&mut cx);
@@ -83,10 +80,9 @@ impl Processor {
     }
 
     pub fn process_sequential(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-        let this = cx.argument::<JsBox<RefCell<Processor>>>(0)?;
+        let this = cx.argument::<JsBox<Processor>>(0)?;
         let mut buffer = cx.argument::<JsTypedArray<f32>>(1)?;
 
-        let this = this.borrow();
         let mut processor = this.inner.lock().unwrap();
 
         let audio_data = buffer.as_mut_slice(&mut cx);
@@ -99,10 +95,9 @@ impl Processor {
     }
 
     pub fn process_planar(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-        let this = cx.argument::<JsBox<RefCell<Processor>>>(0)?;
+        let this = cx.argument::<JsBox<Processor>>(0)?;
         let buffers = cx.argument::<JsArray>(1)?;
 
-        let this = this.borrow();
         let mut processor = this.inner.lock().unwrap();
 
         let length = buffers.len(&mut cx);
@@ -150,8 +145,7 @@ impl Processor {
     }
 
     pub fn get_processor_context(mut cx: FunctionContext) -> JsResult<JsBox<ProcessorContext>> {
-        let this = cx.argument::<JsBox<RefCell<Processor>>>(0)?;
-        let this = this.borrow();
+        let this = cx.argument::<JsBox<Processor>>(0)?;
         let processor = this.inner.lock().unwrap();
 
         let context = processor.processor_context();
@@ -160,8 +154,7 @@ impl Processor {
     }
 
     pub fn get_vad_context(mut cx: FunctionContext) -> JsResult<JsBox<VadContext>> {
-        let this = cx.argument::<JsBox<RefCell<Processor>>>(0)?;
-        let this = this.borrow();
+        let this = cx.argument::<JsBox<Processor>>(0)?;
         let processor = this.inner.lock().unwrap();
 
         let context = processor.vad_context();
