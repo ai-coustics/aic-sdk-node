@@ -1,6 +1,6 @@
 {
   "name": "@ai-coustics/aic-sdk-win32-x64-msvc",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "ai-coustics SDK native bindings for Windows x64 (MSVC)",
   "main": "index.node",
   "author": "ai-coustics GmbH",
