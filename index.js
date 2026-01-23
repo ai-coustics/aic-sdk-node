@@ -97,7 +97,7 @@ const VadParameter = {
    * Note: The VAD returns a value per processed buffer, so this duration is rounded
    * to the closest model window length.
    *
-   * Range: 0.0 to 20x model window length (value in seconds)
+   * Range: 0.0 to 100x model window length (value in seconds)
    * Default: 0.05 (50 ms)
    */
   SpeechHoldDuration: native.VAD_PARAM_SPEECH_HOLD_DURATION,
