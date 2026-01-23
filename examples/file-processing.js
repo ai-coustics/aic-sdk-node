@@ -122,6 +122,10 @@ const processorContext = processor.getProcessorContext();
 const outputDelay = processorContext.getOutputDelay();
 console.log("Output Delay:", outputDelay, "samples");
 
+// Get VAD context for speech detection
+const vadContext = processor.getVadContext();
+console.log("VAD initialized");
+
 // Set enhancement parameters
 try {
   processorContext.setParameter(
@@ -174,14 +178,15 @@ for (let chunk = 0; chunk < totalChunks; chunk++) {
     process.exit(1);
   }
 
+  // Check speech detection after processing
+  const speechDetected = vadContext.isSpeechDetected();
+  const timeInSeconds = (chunk * numFrames) / sampleRate;
+  console.log(
+    `Chunk ${chunk + 1}/${totalChunks} [${timeInSeconds.toFixed(2)}s]: Speech detected: ${speechDetected}`,
+  );
+
   // Copy processed chunk to output
   outputBuffer.set(chunkBuffer, outputOffset);
-
-  // Progress indicator
-  if ((chunk + 1) % 10 === 0 || chunk === totalChunks - 1) {
-    const progress = Math.round(((chunk + 1) / totalChunks) * 100);
-    process.stdout.write(`\rProcessing... ${progress}%`);
-  }
 }
 console.log();
 
