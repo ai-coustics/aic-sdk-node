@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "node examples/basic.js",
+    "test:e2e": "node tests/end2end.test.js",
     "build": "cargo build --release && cp target/release/libaic_sdk_node.so index.node 2>/dev/null || cp target/release/libaic_sdk_node.dylib index.node 2>/dev/null || cp target/release/aic_sdk_node.dll index.node 2>/dev/null || true",
     "debug": "cargo build && cp target/debug/libaic_sdk_node.so index.node 2>/dev/null || cp target/debug/libaic_sdk_node.dylib index.node 2>/dev/null || cp target/debug/aic_sdk_node.dll index.node 2>/dev/null || true",
     "version:update": "bash scripts/update-version.sh",
