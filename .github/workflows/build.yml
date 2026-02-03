@@ -116,8 +116,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run tests
-        run: npm test
+      - name: Run tests and examples
+        run: |
+          npm test
+          node examples/basic.js
+          node examples/file-processing.js --input ./tests/data/test_signal.wav --output ./tmp.wav
         env:
           AIC_SDK_LICENSE: ${{ secrets.AIC_SDK_LICENSE }}
 
