@@ -73,6 +73,7 @@ function licenseKey() {
 
 /**
  * Loads a WAV file and returns audio data.
+ * Uses manual normalization to match Rust's hound library exactly (no dithering).
  * @param {string} filePath - Path to the WAV file
  * @returns {TestAudio} - Audio data structure
  */
@@ -87,17 +88,15 @@ function loadWavAudio(filePath) {
 
   let interleavedSamples;
 
-  // Check if this is a 32-bit float format (WAVE_FORMAT_IEEE_FLOAT or WAVE_FORMAT_EXTENSIBLE with float subformat)
-  const isFloatFormat =
+  // Check if this is a 32-bit float format
+  const isFloat32 =
     audioFormat === 3 ||
     (audioFormat === 65534 &&
-      wav.fmt.subformat &&
-      wav.fmt.subformat[0] === 3 &&
+      wav.fmt.subformat?.[0] === 3 &&
       bitsPerSample === 32);
 
-  if (isFloatFormat) {
-    // For 32-bit float WAV files, read the raw buffer directly as Float32Array
-    // The wavefile library misinterprets float samples, so we bypass it
+  if (isFloat32) {
+    // Read raw buffer directly as Float32Array (wavefile misinterprets float samples)
     const dataBuffer = wav.data.samples;
     interleavedSamples = new Float32Array(
       dataBuffer.buffer,
@@ -105,8 +104,7 @@ function loadWavAudio(filePath) {
       dataBuffer.length / 4,
     );
   } else {
-    // For integer formats, normalize manually like Rust's hound library
-    // (divide by 2^(bits-1) without dithering)
+    // Integer format: normalize manually (divide by 2^(bits-1), no dithering)
     const rawSamples = wav.getSamples(true);
     const maxValue = 1 << (bitsPerSample - 1);
     interleavedSamples = new Float32Array(rawSamples.length);
@@ -115,12 +113,10 @@ function loadWavAudio(filePath) {
     }
   }
 
-  const numFrames = interleavedSamples.length / numChannels;
-
   return {
     sampleRate,
     numChannels,
-    numFrames,
+    numFrames: interleavedSamples.length / numChannels,
     interleavedSamples,
   };
 }
