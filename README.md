@@ -128,7 +128,6 @@ procCtx.reset();
 
 // Set enhancement parameters
 procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.8);
-procCtx.setParameter(ProcessorParameter.VoiceGain, 1.5);
 procCtx.setParameter(ProcessorParameter.Bypass, 0.0);
 
 // Get parameter values
