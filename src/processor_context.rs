@@ -8,7 +8,6 @@ use neon::{
 // Processor parameter constants
 pub const PROCESSOR_PARAM_BYPASS: i32 = 0;
 pub const PROCESSOR_PARAM_ENHANCEMENT_LEVEL: i32 = 1;
-pub const PROCESSOR_PARAM_VOICE_GAIN: i32 = 2;
 
 pub fn parse_processor_parameter(
     cx: &mut FunctionContext,
@@ -19,7 +18,6 @@ pub fn parse_processor_parameter(
     match param_num {
         PROCESSOR_PARAM_BYPASS => Ok(aic_sdk::ProcessorParameter::Bypass),
         PROCESSOR_PARAM_ENHANCEMENT_LEVEL => Ok(aic_sdk::ProcessorParameter::EnhancementLevel),
-        PROCESSOR_PARAM_VOICE_GAIN => Ok(aic_sdk::ProcessorParameter::VoiceGain),
         _ => cx.throw_error(format!("Invalid processor parameter: {}", param_num)),
     }
 }
@@ -94,8 +92,6 @@ pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()>
     cx.export_value("PROCESSOR_PARAM_BYPASS", bypass)?;
     let enhancement_level = cx.number(PROCESSOR_PARAM_ENHANCEMENT_LEVEL);
     cx.export_value("PROCESSOR_PARAM_ENHANCEMENT_LEVEL", enhancement_level)?;
-    let voice_gain = cx.number(PROCESSOR_PARAM_VOICE_GAIN);
-    cx.export_value("PROCESSOR_PARAM_VOICE_GAIN", voice_gain)?;
 
     Ok(())
 }

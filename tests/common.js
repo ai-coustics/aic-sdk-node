@@ -46,7 +46,7 @@ function getTestModelPath() {
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  return Model.download("sparrow-xxs-48khz", targetDir);
+  return Model.download("sparrow-s-48khz", targetDir);
 }
 
 /**

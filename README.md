@@ -5,7 +5,7 @@ Node.js wrapper for the ai-coustics Speech Enhancement SDK.
 For comprehensive documentation, visit [docs.ai-coustics.com](https://docs.ai-coustics.com).
 
 > [!NOTE]
-> This SDK requires a license key. Generate your key at [developers.ai-coustics.io](https://developers.ai-coustics.io).
+> This SDK requires a license key. Generate your key at [developers.ai-coustics.com](https://developers.ai-coustics.com).
 
 ## Installation
 
@@ -22,7 +22,7 @@ const { Model, Processor } = require("@ai-coustics/aic-sdk");
 const licenseKey = process.env.AIC_SDK_LICENSE;
 
 // Download and load a model (or download manually at https://artifacts.ai-coustics.io/)
-const modelPath = Model.download("sparrow-xxs-48khz", "./models");
+const modelPath = Model.download("quail-vf-2.0-l-16khz", "./models");
 const model = Model.fromFile(modelPath);
 
 // Get optimal configuration
@@ -64,7 +64,7 @@ const model = Model.fromFile("path/to/model.aicmodel");
 
 #### Download from CDN
 ```javascript
-const modelPath = Model.download("sparrow-xxs-48khz", "./models");
+const modelPath = Model.download("quail-vf-2.0-l-16khz", "./models");
 const model = Model.fromFile(modelPath);
 ```
 
@@ -128,7 +128,6 @@ procCtx.reset();
 
 // Set enhancement parameters
 procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.8);
-procCtx.setParameter(ProcessorParameter.VoiceGain, 1.5);
 procCtx.setParameter(ProcessorParameter.Bypass, 0.0);
 
 // Get parameter values
