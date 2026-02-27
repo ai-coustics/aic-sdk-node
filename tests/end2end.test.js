@@ -39,7 +39,6 @@ function testProcessFullFileInterleaved() {
 
   const procCtx = processor.getProcessorContext();
   procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.9);
-  procCtx.setParameter(ProcessorParameter.VoiceGain, 0.9);
 
   const samples = new Float32Array(audio.interleavedSamples);
   processor.processInterleaved(samples);
@@ -87,7 +86,6 @@ function testProcessFullFileSequential() {
 
   const procCtx = processor.getProcessorContext();
   procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.9);
-  procCtx.setParameter(ProcessorParameter.VoiceGain, 0.9);
 
   const samples = interleavedToSequential(
     audio.interleavedSamples,
@@ -139,7 +137,6 @@ function testProcessFullFilePlanar() {
 
   const procCtx = processor.getProcessorContext();
   procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.9);
-  procCtx.setParameter(ProcessorParameter.VoiceGain, 0.9);
 
   const planar = interleavedToPlanar(
     audio.interleavedSamples,
