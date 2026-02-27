@@ -20,7 +20,7 @@ console.log("Compatible Model Version:", getCompatibleModelVersion());
 // Download and load a model
 let model;
 try {
-  const modelPath = Model.download("quail-vf-l-16khz", "/tmp/aic-models");
+  const modelPath = Model.download("quail-vf-2.0-l-16khz", "/tmp/aic-models");
   console.log("Model downloaded to:", modelPath);
   model = Model.fromFile(modelPath);
   console.log("Model ID:", model.getId());
@@ -60,7 +60,6 @@ console.log("Output Delay:", processorContext.getOutputDelay(), "samples");
 // Set enhancement parameters
 try {
   processorContext.setParameter(ProcessorParameter.EnhancementLevel, 0.7);
-  processorContext.setParameter(ProcessorParameter.VoiceGain, 1.5);
 } catch (error) {
   console.error("Failed to set parameters:", error.message);
   // Failing is fine here, so do not end the process
@@ -69,10 +68,6 @@ try {
 console.log(
   "Enhancement Level:",
   processorContext.getParameter(ProcessorParameter.EnhancementLevel),
-);
-console.log(
-  "Voice Gain:",
-  processorContext.getParameter(ProcessorParameter.VoiceGain),
 );
 
 // Process interleaved audio
