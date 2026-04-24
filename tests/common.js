@@ -23,7 +23,7 @@ function findExistingModel(targetDir) {
   }
   const entries = fs.readdirSync(targetDir);
   for (const entry of entries) {
-    if (entry.endsWith(".aicmodel") && entry.startsWith("sparrow_xxs_48khz")) {
+    if (entry.endsWith(".aicmodel") && entry.startsWith("quail_vf")) {
       return path.join(targetDir, entry);
     }
   }
@@ -46,7 +46,7 @@ function getTestModelPath() {
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  return Model.download("sparrow-s-48khz", targetDir);
+  return Model.download("quail-vf-2.1-s-16khz", targetDir);
 }
 
 /**

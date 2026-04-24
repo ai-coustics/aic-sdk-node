@@ -7,7 +7,7 @@ const WaveFile = require("wavefile").WaveFile;
 const args = process.argv.slice(2);
 let inputFile = null;
 let outputFile = null;
-let modelId = "sparrow-l-48khz";
+let modelId = "rook-l-48khz";
 let enhancementLevel = 1.0;
 
 for (let i = 0; i < args.length; i++) {
