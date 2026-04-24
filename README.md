@@ -22,7 +22,7 @@ const { Model, Processor } = require("@ai-coustics/aic-sdk");
 const licenseKey = process.env.AIC_SDK_LICENSE;
 
 // Download and load a model (or download manually at https://artifacts.ai-coustics.io/)
-const modelPath = Model.download("quail-vf-2.0-l-16khz", "./models");
+const modelPath = Model.download("quail-vf-2.1-l-16khz", "./models");
 const model = Model.fromFile(modelPath);
 
 // Get optimal configuration
@@ -64,7 +64,7 @@ const model = Model.fromFile("path/to/model.aicmodel");
 
 #### Download from CDN
 ```javascript
-const modelPath = Model.download("quail-vf-2.0-l-16khz", "./models");
+const modelPath = Model.download("quail-vf-2.1-l-16khz", "./models");
 const model = Model.fromFile(modelPath);
 ```
 

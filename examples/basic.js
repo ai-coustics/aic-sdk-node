@@ -20,7 +20,7 @@ console.log("Compatible Model Version:", getCompatibleModelVersion());
 // Download and load a model
 let model;
 try {
-  const modelPath = Model.download("quail-vf-2.0-l-16khz", "/tmp/aic-models");
+  const modelPath = Model.download("quail-vf-2.1-l-16khz", "/tmp/aic-models");
   console.log("Model downloaded to:", modelPath);
   model = Model.fromFile(modelPath);
   console.log("Model ID:", model.getId());
