@@ -7,10 +7,12 @@ Add `NPM_TOKEN` to GitHub Secrets (Settings → Secrets → Actions).
 ## Publish
 
 ```bash
-npm run version:update 0.2.0
+npm run version:update x.x.x
+git branch update-x.x.x
+git checkout update-x.x.x
 git add .
-git commit -m "chore: bump version to 0.2.0"
-git tag 0.2.0
+git commit -m "bump version to x.x.x"
+git tag x.x.x
 git push origin main --tags
 ```
 
