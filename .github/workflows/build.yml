@@ -135,6 +135,7 @@ jobs:
       id-token: write
       contents: read
 
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -178,3 +179,19 @@ jobs:
         run: |
           npm pkg delete scripts.prepublishOnly
           npm publish --access public
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release/release-notes.md
