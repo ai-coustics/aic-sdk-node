@@ -1,4 +1,4 @@
-# Version Update and Publish
+# Version Update and Publishing
 
 ```bash
 npm run version:update x.x.x
