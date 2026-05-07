@@ -1,9 +1,7 @@
-## New Features
+## Improvements
 
-- Added support for Quail Voice Focus 2.1 models.
-- This release adds an experimental feature to export real-time audio processing metrics via OpenTelemetry (OTel). The new feature is currently disabled by default and available for testing on early access only.
+- Increased maximum VAD speech hold duration from 100x to 300x the model's window size.
 
-## Breaking Changes
+## Bug Fixes
 
-- Quail Voice Focus 2.0 is no longer supported.
-- Compatible model file version was bumped to 3.
+- Removed zero-padding when the host frame size does not match the model frame size, which caused unexpected behavior for some models.
