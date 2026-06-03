@@ -34,17 +34,16 @@ fn parse_otel_config(
     let object = value.downcast_or_throw::<JsObject, _>(cx)?;
     let enable = object.get::<JsBoolean, _, _>(cx, "enable")?.value(cx);
     let session_id_value = object.get::<JsValue, _, _>(cx, "sessionId")?;
-    let session_id = if session_id_value.is_a::<JsUndefined, _>(cx)
-        || session_id_value.is_a::<JsNull, _>(cx)
-    {
-        None
-    } else {
-        Some(
-            session_id_value
-                .downcast_or_throw::<JsString, _>(cx)?
-                .value(cx),
-        )
-    };
+    let session_id =
+        if session_id_value.is_a::<JsUndefined, _>(cx) || session_id_value.is_a::<JsNull, _>(cx) {
+            None
+        } else {
+            Some(
+                session_id_value
+                    .downcast_or_throw::<JsString, _>(cx)?
+                    .value(cx),
+            )
+        };
 
     let export_interval_value = object.get::<JsValue, _, _>(cx, "exportIntervalMs")?;
     let export_interval_ms = if export_interval_value.is_a::<JsUndefined, _>(cx)
