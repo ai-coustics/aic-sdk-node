@@ -96,6 +96,44 @@ processor.initialize(
 );
 ```
 
+### OpenTelemetry Configuration
+
+```javascript
+const { Model, OtelConfig, Processor } = require("@ai-coustics/aic-sdk");
+
+const licenseKey = process.env.AIC_SDK_LICENSE;
+const model = Model.fromFile("path/to/model.aicmodel");
+
+// Override AIC_SDK_OTEL_ENABLE for this processor only.
+const otel = OtelConfig.withSessionId("session-1");
+const processor = new Processor(model, licenseKey, otel);
+
+// Other options:
+// const processor = new Processor(model, licenseKey, OtelConfig.enabled());
+// const processor = new Processor(model, licenseKey, OtelConfig.disabled());
+
+// Control how often metrics are exported. Set to 0 to keep the SDK default
+// of 60000 ms.
+const fast = OtelConfig.enabled();
+fast.exportIntervalMs = 5000;
+const fastProcessor = new Processor(model, licenseKey, fast);
+```
+
+### Refreshing a JWT Bearer Token
+
+When the processor was created with a JWT license, you can swap in a renewed
+token while audio processing continues uninterrupted. If either the configured
+key or the new token is not a JWT, an error is thrown and the existing token
+stays in use.
+
+```javascript
+const model = Model.fromFile("path/to/model.aicmodel");
+const processor = new Processor(model, jwtLicense);
+const processorContext = processor.getProcessorContext();
+
+processorContext.updateBearerToken(renewedJwt);
+```
+
 ### Processing Audio
 
 ```javascript

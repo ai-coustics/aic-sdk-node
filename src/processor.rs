@@ -6,8 +6,8 @@ use neon::{
     prelude::{Context, FunctionContext},
     result::{JsResult, NeonResult},
     types::{
-        Finalize, JsArray, JsBoolean, JsBox, JsNumber, JsString, JsTypedArray, JsUndefined,
-        buffer::TypedArray,
+        Finalize, JsArray, JsBoolean, JsBox, JsNull, JsNumber, JsObject, JsString, JsTypedArray,
+        JsUndefined, JsValue, buffer::TypedArray,
     },
 };
 
@@ -23,18 +23,67 @@ impl Finalize for Processor {
     fn finalize<'a, C: neon::prelude::Context<'a>>(self, _: &mut C) {}
 }
 
+fn parse_otel_config(
+    cx: &mut FunctionContext,
+    value: Handle<JsValue>,
+) -> NeonResult<Option<aic_sdk::OtelConfig>> {
+    if value.is_a::<JsUndefined, _>(cx) || value.is_a::<JsNull, _>(cx) {
+        return Ok(None);
+    }
+
+    let object = value.downcast_or_throw::<JsObject, _>(cx)?;
+    let enable = object.get::<JsBoolean, _, _>(cx, "enable")?.value(cx);
+    let session_id_value = object.get::<JsValue, _, _>(cx, "sessionId")?;
+    let session_id =
+        if session_id_value.is_a::<JsUndefined, _>(cx) || session_id_value.is_a::<JsNull, _>(cx) {
+            None
+        } else {
+            Some(
+                session_id_value
+                    .downcast_or_throw::<JsString, _>(cx)?
+                    .value(cx),
+            )
+        };
+
+    let export_interval_value = object.get::<JsValue, _, _>(cx, "exportIntervalMs")?;
+    let export_interval_ms = if export_interval_value.is_a::<JsUndefined, _>(cx)
+        || export_interval_value.is_a::<JsNull, _>(cx)
+    {
+        0
+    } else {
+        export_interval_value
+            .downcast_or_throw::<JsNumber, _>(cx)?
+            .value(cx) as u32
+    };
+
+    Ok(Some(aic_sdk::OtelConfig {
+        enable,
+        session_id,
+        export_interval_ms,
+    }))
+}
+
 impl Processor {
     pub fn new(mut cx: FunctionContext) -> JsResult<JsBox<Processor>> {
         let model = cx.argument::<JsBox<Model>>(0)?;
         let license_key = cx.argument::<JsString>(1)?.value(&mut cx);
+        let otel_config = match cx.argument_opt(2) {
+            Some(value) => parse_otel_config(&mut cx, value)?,
+            None => None,
+        };
 
         // SAFETY: This function has no safety requirements.
         unsafe {
             aic_sdk::set_sdk_id(4);
         }
 
-        let processor = aic_sdk::Processor::new(&model.inner, &license_key)
-            .or_else(|e| cx.throw_error(e.to_string()))?;
+        let processor = match &otel_config {
+            Some(otel_config) => {
+                aic_sdk::Processor::with_otel_config(&model.inner, &license_key, otel_config)
+            }
+            None => aic_sdk::Processor::new(&model.inner, &license_key),
+        }
+        .or_else(|e| cx.throw_error(e.to_string()))?;
 
         Ok(cx.boxed(Processor {
             inner: Arc::new(Mutex::new(processor)),

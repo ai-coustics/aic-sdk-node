@@ -98,14 +98,15 @@ const VadParameter = {
   SpeechHoldDuration: native.VAD_PARAM_SPEECH_HOLD_DURATION,
 
   /**
-   * Controls the sensitivity (energy threshold) of the VAD.
+   * Controls the sensitivity of the VAD.
    *
-   * This value is used by the VAD as the threshold a speech audio signal's energy
-   * has to exceed in order to be considered speech.
+   * The interpretation depends on the model:
+   *   - Energy-based VADs: threshold a speech signal's energy must exceed to be
+   *     considered speech. Range 1.0 to 15.0, formula: energy threshold = 10 ^ (-sensitivity).
+   *   - Dedicated VAD models (e.g. Quail VAD): the speech probability threshold,
+   *     in the range 0.0 to 1.0.
    *
-   * Range: 1.0 to 15.0
-   * Formula: Energy threshold = 10 ^ (-sensitivity)
-   * Default: 6.0
+   * Default: model-specific.
    */
   Sensitivity: native.VAD_PARAM_SENSITIVITY,
 
@@ -209,6 +210,26 @@ class ProcessorContext {
   getOutputDelay() {
     return native.processorContextGetOutputDelay(this._context);
   }
+
+  /**
+   * Swaps in a renewed JWT bearer token while audio processing continues
+   * uninterrupted.
+   *
+   * Only valid when the processor was created with a JWT license. If either the
+   * originally configured key or the new token is not a JWT, an error is thrown
+   * and the existing token stays in use.
+   *
+   * This function can be called from any thread.
+   *
+   * @param {string} token - The renewed JWT bearer token.
+   * @throws {Error} If token update is unsupported for the configured license.
+   *
+   * @example
+   * processorContext.updateBearerToken(renewedJwt);
+   */
+  updateBearerToken(token) {
+    native.processorContextUpdateBearerToken(this._context, token);
+  }
 }
 
 /**
@@ -275,6 +296,59 @@ class VadContext {
    */
   getParameter(parameter) {
     return native.vadContextGetParameter(this._context, parameter);
+  }
+}
+
+/**
+ * OpenTelemetry configuration for a processor.
+ *
+ * Pass an instance as the third argument to Processor to override
+ * AIC_SDK_OTEL_ENABLE for that processor only.
+ */
+class OtelConfig {
+  /**
+   * Creates an OpenTelemetry configuration for a processor.
+   *
+   * Pass an instance as the third argument to Processor to override
+   * AIC_SDK_OTEL_ENABLE for that processor only.
+   *
+   * @param {boolean} enable - Whether OpenTelemetry telemetry is enabled
+   * @param {string|null} [sessionId=null] - Optional telemetry session ID
+   * @param {number} [exportIntervalMs=0] - Metric export interval in milliseconds.
+   *   Set to 0 to use the SDK default of 60000 ms.
+   */
+  constructor(enable, sessionId = null, exportIntervalMs = 0) {
+    this.enable = Boolean(enable);
+    this.sessionId = sessionId == null ? null : String(sessionId);
+    this.exportIntervalMs = Number(exportIntervalMs) || 0;
+  }
+
+  /**
+   * Creates a config with OpenTelemetry disabled.
+   *
+   * @returns {OtelConfig}
+   */
+  static disabled() {
+    return new OtelConfig(false);
+  }
+
+  /**
+   * Creates a config with OpenTelemetry enabled and a generated session ID.
+   *
+   * @returns {OtelConfig}
+   */
+  static enabled() {
+    return new OtelConfig(true);
+  }
+
+  /**
+   * Creates a config with OpenTelemetry enabled and the provided session ID.
+   *
+   * @param {string} sessionId - Telemetry session ID
+   * @returns {OtelConfig}
+   */
+  static withSessionId(sessionId) {
+    return new OtelConfig(true, sessionId);
   }
 }
 
@@ -429,15 +503,17 @@ class Processor {
    * @param {Model} model - The loaded model instance
    * @param {string} licenseKey - License key for the ai-coustics SDK
    *   (generate your key at https://developers.ai-coustics.com/)
+   * @param {OtelConfig|null} [otelConfig=null] - Optional per-processor OpenTelemetry config.
+   *   When omitted, telemetry follows the SDK environment configuration.
    * @throws {Error} If processor creation fails.
    *
    * @example
    * const model = Model.fromFile("/path/to/model.aicmodel");
-   * const processor = new Processor(model, licenseKey);
+   * const processor = new Processor(model, licenseKey, OtelConfig.withSessionId("session-1"));
    * processor.initialize(sampleRate, numChannels, numFrames, false);
    */
-  constructor(model, licenseKey) {
-    this._processor = native.processorNew(model._model, licenseKey);
+  constructor(model, licenseKey, otelConfig = null) {
+    this._processor = native.processorNew(model._model, licenseKey, otelConfig);
   }
 
   /**
@@ -584,6 +660,7 @@ function getCompatibleModelVersion() {
 
 module.exports = {
   Model,
+  OtelConfig,
   Processor,
   ProcessorContext,
   VadContext,

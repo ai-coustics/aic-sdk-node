@@ -2,7 +2,7 @@ use neon::{
     handle::Handle,
     prelude::{Context, FunctionContext},
     result::{JsResult, NeonResult},
-    types::{Finalize, JsBox, JsNumber, JsUndefined, JsValue},
+    types::{Finalize, JsBox, JsNumber, JsString, JsUndefined, JsValue},
 };
 
 // Processor parameter constants
@@ -70,6 +70,17 @@ impl ProcessorContext {
         let delay = this.inner.output_delay();
         Ok(cx.number(delay as f64))
     }
+
+    pub fn update_bearer_token(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+        let this = cx.argument::<JsBox<ProcessorContext>>(0)?;
+        let token = cx.argument::<JsString>(1)?.value(&mut cx);
+
+        this.inner
+            .update_bearer_token(&token)
+            .or_else(|e| cx.throw_error(e.to_string()))?;
+
+        Ok(cx.undefined())
+    }
 }
 
 pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()> {
@@ -85,6 +96,10 @@ pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()>
     cx.export_function(
         "processorContextGetOutputDelay",
         ProcessorContext::get_output_delay,
+    )?;
+    cx.export_function(
+        "processorContextUpdateBearerToken",
+        ProcessorContext::update_bearer_token,
     )?;
 
     // Export processor parameter constants
