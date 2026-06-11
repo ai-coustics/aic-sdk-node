@@ -1,5 +1,6 @@
 use neon::prelude::*;
 
+mod analyzer;
 mod model;
 mod processor;
 mod processor_context;
@@ -32,6 +33,9 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
 
     // VadContext
     vad_context::register_exports(&mut cx)?;
+
+    // Analyzer / Collector
+    analyzer::register_exports(&mut cx)?;
 
     Ok(())
 }
