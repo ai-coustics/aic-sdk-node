@@ -480,67 +480,13 @@ function analyzerPair(model, licenseKey) {
 }
 
 /**
- * Number of seconds of audio the analysis model consumes per analysis window.
- * @private
- */
-const ANALYSIS_WINDOW_SECONDS = 5;
-
-/**
- * Computes the start sample of every analysis window on the step grid.
- * @private
- */
-function analysisWindowStarts(audioLen, windowSamples, stepSamples) {
-  if (audioLen <= windowSamples) {
-    return [0];
-  }
-  const numFollowupWindows = Math.floor((audioLen - windowSamples) / stepSamples);
-  const starts = [];
-  for (let step = 0; step <= numFollowupWindows; step++) {
-    starts.push(step * stepSamples);
-  }
-  return starts;
-}
-
-/**
- * Buffers exactly one analysis window into the collector using fixed-size model-hop frames.
- * Missing samples are zero-padded so short windows still reach the model's full context.
- * @private
- */
-function bufferAnalysisWindow(collector, audio, start, windowSamples, frameSamples) {
-  let bufferedSamples = 0;
-  while (bufferedSamples < windowSamples) {
-    const frameStart = start + bufferedSamples;
-    const availableSamples = Math.min(
-      Math.max(audio.length - frameStart, 0),
-      frameSamples,
-    );
-
-    if (availableSamples === frameSamples) {
-      // Fast path: the next fixed-size frame is fully available from the source audio.
-      collector.bufferInterleaved(
-        audio.subarray(frameStart, frameStart + frameSamples),
-      );
-    } else {
-      // Pad short windows or non-aligned tails with silence while still feeding the
-      // collector exactly one fixed-size frame.
-      const frame = new Float32Array(frameSamples);
-      if (availableSamples > 0) {
-        frame.set(audio.subarray(frameStart, frameStart + availableSamples));
-      }
-      collector.bufferInterleaved(frame);
-    }
-
-    bufferedSamples += frameSamples;
-  }
-}
-
-/**
  * Analyzes complete mono audio buffers.
  *
  * FileAnalyzer is a convenience wrapper around a {@link Collector} and {@link Analyzer} pair
- * for non-real-time analysis of audio that is already loaded in memory.
+ * for non-real-time analysis of audio that is already loaded in memory. The windowing,
+ * zero-padding and reset logic is performed by the underlying SDK.
  *
- * Each call to analyze() configures the collector for mono input with the model's optimal frame
+ * Each call to analyze() configures the analyzer for mono input with the model's optimal frame
  * size. It analyzes independent five-second windows, advancing the start of each window by
  * stepSamples.
  *
@@ -556,21 +502,16 @@ class FileAnalyzer {
   /**
    * Creates a new file analyzer.
    *
-   * The collector is not initialized until analyze() is called. This lets the same FileAnalyzer
-   * instance analyze mono buffers with different sample rates or step sizes.
-   *
    * @param {Model} model - The loaded model instance
    * @param {string} licenseKey - License key for the ai-coustics SDK
    *   (generate your key at https://developers.ai-coustics.com/)
-   * @throws {Error} If the analyzer pair cannot be created.
+   * @throws {Error} If the analyzer cannot be created.
    */
   constructor(model, licenseKey) {
-    // Keep a reference to the model so it stays alive for the analyzer's lifetime and so
-    // analyze() can query the optimal frame size.
+    // Keep a reference to the model so it stays alive for the analyzer's lifetime: the native
+    // analyzer borrows the model's weights and must not outlive the model.
     this._model = model;
-    const { collector, analyzer } = analyzerPair(model, licenseKey);
-    this._collector = collector;
-    this._analyzer = analyzer;
+    this._analyzer = native.fileAnalyzerNew(model._model, licenseKey);
   }
 
   /**
@@ -579,9 +520,8 @@ class FileAnalyzer {
    * The input must contain mono f32 samples at sampleRate. No channel mixing or resampling is
    * performed.
    *
-   * The analyzer evaluates five-second windows. FileAnalyzer buffers a window starting at sample
-   * 0, runs the analyzer once, resets the analyzer and collector, then repeats with a window
-   * starting stepSamples later.
+   * The analyzer evaluates five-second windows. FileAnalyzer analyzes a window starting at sample
+   * 0, then repeats with a window starting stepSamples later.
    *
    * If audio is shorter than or equal to five seconds, it is padded with silence and only one
    * result is returned. For longer signals, only complete five-second windows are analyzed after
@@ -594,7 +534,7 @@ class FileAnalyzer {
    * @param {number|null} [stepSamples=null] - Number of samples to advance between analysis
    *   results. Defaults to the analysis window size (no overlap) when null.
    * @returns {AnalysisResult[]} A list of analysis results.
-   * @throws {Error} If initialization, buffering or analysis fails.
+   * @throws {Error} If analysis fails.
    */
   analyze(audio, sampleRate, stepSamples = null) {
     if (!(audio instanceof Float32Array)) {
@@ -605,46 +545,16 @@ class FileAnalyzer {
       throw new Error("sampleRate must be greater than 0");
     }
 
-    // The analysis model consumes a fixed five-second context. Convert that duration to the
-    // caller's sample rate and use it as the size of every analysis window.
-    const analysisWindowSamples = sampleRate * ANALYSIS_WINDOW_SECONDS;
-
-    const step = stepSamples == null ? analysisWindowSamples : stepSamples;
-    if (!(step > 0)) {
+    if (stepSamples != null && !(stepSamples > 0)) {
       throw new Error("stepSamples must be greater than 0");
     }
 
-    // The collector only emits fresh spectrogram frames at the model's hop size. Feeding any
-    // other frame size would add buffering inside the collector and shift the analysis timing.
-    const optimalNumFrames = this._model.getOptimalNumFrames(sampleRate);
-    if (!(optimalNumFrames > 0)) {
-      throw new Error("Model returned an unsupported optimal frame size");
-    }
-
-    this._collector.initialize(sampleRate, 1, optimalNumFrames, false);
-
-    const windowStarts = analysisWindowStarts(
-      audio.length,
-      analysisWindowSamples,
-      step,
+    return native.fileAnalyzerAnalyze(
+      this._analyzer,
+      audio,
+      sampleRate,
+      stepSamples,
     );
-
-    const results = [];
-    for (const windowStart of windowStarts) {
-      // Each result must be computed from an independent five-second span. Reset clears both
-      // the analyzer and collector before buffering the next window from scratch.
-      this._analyzer.reset();
-      bufferAnalysisWindow(
-        this._collector,
-        audio,
-        windowStart,
-        analysisWindowSamples,
-        optimalNumFrames,
-      );
-      results.push(this._analyzer.analyzeBuffered());
-    }
-
-    return results;
   }
 }
 
