@@ -251,7 +251,11 @@ impl FileAnalyzer {
             if step_arg.is_a::<JsNull, _>(&mut cx) || step_arg.is_a::<JsUndefined, _>(&mut cx) {
                 None
             } else {
-                Some(step_arg.downcast_or_throw::<JsNumber, _>(&mut cx)?.value(&mut cx) as usize)
+                Some(
+                    step_arg
+                        .downcast_or_throw::<JsNumber, _>(&mut cx)?
+                        .value(&mut cx) as usize,
+                )
             };
 
         // Borrow the audio without copying and run the analysis. The slice borrows the context
