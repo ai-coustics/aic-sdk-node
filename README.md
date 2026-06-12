@@ -196,6 +196,66 @@ if (vadCtx.isSpeechDetected()) {
 }
 ```
 
+### Audio Analysis
+
+Analysis models (for example `tyto-l-16khz`) score audio quality instead of enhancing it. Use
+`FileAnalyzer` for complete mono buffers already in memory, or `analyzerPair` for streaming and
+multi-channel analysis.
+
+#### FileAnalyzer
+
+```javascript
+const { Model, FileAnalyzer } = require("@ai-coustics/aic-sdk");
+
+const licenseKey = process.env.AIC_SDK_LICENSE;
+const modelPath = Model.download("tyto-l-16khz", "./models");
+const model = Model.fromFile(modelPath);
+
+const analyzer = new FileAnalyzer(model, licenseKey);
+
+// Mono Float32 samples. No channel mixing or resampling is performed.
+const sampleRate = 16000;
+const audio = new Float32Array(sampleRate * 12); // 12 seconds
+
+// Analyze independent five-second windows. Pass a step in samples to control overlap,
+// or omit it to step by the full window (no overlap).
+const results = analyzer.analyze(audio, sampleRate, sampleRate * 5);
+
+for (const result of results) {
+  console.log("Risk score:", result.riskScore);
+  console.log("Noise:", result.noise);
+  console.log("Packet loss:", result.packetLoss);
+}
+```
+
+Each result is an object with the fields `riskScore`, `speakerReverb`, `speakerLoudness`,
+`interferingSpeech`, `mediaSpeech`, `noise` and `packetLoss`. All scores are in the range 0.0 to
+1.0. For every field except `speakerLoudness`, lower values indicate less problematic audio.
+
+#### Collector and Analyzer pair
+
+```javascript
+const { Model, analyzerPair } = require("@ai-coustics/aic-sdk");
+
+const model = Model.fromFile("path/to/tyto-l-16khz.aicmodel");
+const { collector, analyzer } = analyzerPair(model, licenseKey);
+
+const sampleRate = model.getOptimalSampleRate();
+const numFrames = model.getOptimalNumFrames(sampleRate);
+collector.initialize(sampleRate, 1, numFrames, false);
+
+// Buffer audio chunks (for example on an audio thread).
+const chunk = new Float32Array(numFrames);
+collector.bufferInterleaved(chunk);
+
+// Analyze the buffered audio off the audio thread.
+const result = analyzer.analyzeBuffered();
+console.log("Risk score:", result.riskScore);
+
+// Clear state when the stream is interrupted or when seeking.
+analyzer.reset();
+```
+
 ## Examples
 
 See the [`basic.js`](examples/basic.js) file for a complete working example.
