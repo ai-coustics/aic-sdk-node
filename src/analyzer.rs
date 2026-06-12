@@ -213,32 +213,32 @@ impl Finalize for FileAnalyzer {
     fn finalize<'a, C: Context<'a>>(self, _: &mut C) {}
 }
 
-/// Creates a file analyzer bound to a model.
-pub fn file_analyzer_new(mut cx: FunctionContext) -> JsResult<JsBox<FileAnalyzer>> {
-    let model = cx.argument::<JsBox<Model>>(0)?;
-    let license_key = cx.argument::<JsString>(1)?.value(&mut cx);
+impl FileAnalyzer {
+    pub fn new(mut cx: FunctionContext) -> JsResult<JsBox<Self>> {
+        let model = cx.argument::<JsBox<Model>>(0)?;
+        let license_key = cx.argument::<JsString>(1)?.value(&mut cx);
 
-    // SAFETY: This function has no safety requirements.
-    unsafe {
-        aic_sdk::set_sdk_id(4);
+        // SAFETY: This function has no safety requirements.
+        unsafe {
+            aic_sdk::set_sdk_id(4);
+        }
+
+        // SAFETY: aic_sdk::FileAnalyzer borrows the model for the analyzer's lifetime so the native
+        // analyzer can keep reading the model's weights. The JS FileAnalyzer wrapper retains the
+        // Model object (this._model = model), keeping the boxed Model alive for at least as long as
+        // this FileAnalyzer, so extending the borrow to 'static is sound. This mirrors the 'static
+        // coercion the rest of the binding already relies on (Model<'static>, Analyzer<'static>).
+        let model_ref: &'static aic_sdk::Model<'static> =
+            unsafe { std::mem::transmute(&model.inner) };
+
+        let file_analyzer = aic_sdk::FileAnalyzer::new(model_ref, &license_key)
+            .or_else(|e| cx.throw_error(e.to_string()))?;
+
+        Ok(cx.boxed(FileAnalyzer {
+            inner: Mutex::new(file_analyzer),
+        }))
     }
 
-    // SAFETY: aic_sdk::FileAnalyzer borrows the model for the analyzer's lifetime so the native
-    // analyzer can keep reading the model's weights. The JS FileAnalyzer wrapper retains the
-    // Model object (this._model = model), keeping the boxed Model alive for at least as long as
-    // this FileAnalyzer, so extending the borrow to 'static is sound. This mirrors the 'static
-    // coercion the rest of the binding already relies on (Model<'static>, Analyzer<'static>).
-    let model_ref: &'static aic_sdk::Model<'static> = unsafe { std::mem::transmute(&model.inner) };
-
-    let file_analyzer = aic_sdk::FileAnalyzer::new(model_ref, &license_key)
-        .or_else(|e| cx.throw_error(e.to_string()))?;
-
-    Ok(cx.boxed(FileAnalyzer {
-        inner: Mutex::new(file_analyzer),
-    }))
-}
-
-impl FileAnalyzer {
     pub fn analyze(mut cx: FunctionContext) -> JsResult<JsArray> {
         let this = cx.argument::<JsBox<FileAnalyzer>>(0)?;
         let audio = cx.argument::<JsTypedArray<f32>>(1)?;
@@ -280,7 +280,7 @@ impl FileAnalyzer {
 pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()> {
     cx.export_function("analyzerPair", analyzer_pair)?;
 
-    cx.export_function("fileAnalyzerNew", file_analyzer_new)?;
+    cx.export_function("fileAnalyzerNew", FileAnalyzer::new)?;
     cx.export_function("fileAnalyzerAnalyze", FileAnalyzer::analyze)?;
 
     cx.export_function("collectorInitialize", Collector::initialize)?;
