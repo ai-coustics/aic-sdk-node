@@ -13,17 +13,18 @@ const TEST_AUDIO_ENHANCED_PATH = path.join(
 const VAD_RESULTS_PATH = path.join(__dirname, "data", "vad_results.json");
 
 /**
- * Finds an existing model file in the target directory.
+ * Finds an existing model file in the target directory whose name starts with a prefix.
  * @param {string} targetDir - Directory to search in
+ * @param {string} prefix - File name prefix to match (e.g. "quail_vf")
  * @returns {string|null} - Path to found model or null
  */
-function findExistingModel(targetDir) {
+function findExistingModel(targetDir, prefix) {
   if (!fs.existsSync(targetDir)) {
     return null;
   }
   const entries = fs.readdirSync(targetDir);
   for (const entry of entries) {
-    if (entry.endsWith(".aicmodel") && entry.startsWith("quail_vf")) {
+    if (entry.endsWith(".aicmodel") && entry.startsWith(prefix)) {
       return path.join(targetDir, entry);
     }
   }
@@ -37,7 +38,7 @@ function findExistingModel(targetDir) {
 function getTestModelPath() {
   const targetDir = path.join(__dirname, "..", "target");
 
-  const existing = findExistingModel(targetDir);
+  const existing = findExistingModel(targetDir, "quail_vf");
   if (existing) {
     return existing;
   }
@@ -47,6 +48,25 @@ function getTestModelPath() {
   }
 
   return Model.download("quail-vf-2.1-s-16khz", targetDir);
+}
+
+/**
+ * Gets the path to the analysis test model, downloading if necessary.
+ * @returns {string} - Path to the analysis model file
+ */
+function getAnalysisModelPath() {
+  const targetDir = path.join(__dirname, "..", "target");
+
+  const existing = findExistingModel(targetDir, "tyto");
+  if (existing) {
+    return existing;
+  }
+
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  return Model.download("tyto-l-16khz", targetDir);
 }
 
 /**
@@ -210,6 +230,7 @@ module.exports = {
   TEST_AUDIO_ENHANCED_PATH,
   VAD_RESULTS_PATH,
   getTestModelPath,
+  getAnalysisModelPath,
   licenseKey,
   loadWavAudio,
   interleavedToSequential,

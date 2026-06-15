@@ -300,6 +300,265 @@ class VadContext {
 }
 
 /**
+ * The result of analyzing an audio signal with an {@link Analyzer} or {@link FileAnalyzer}.
+ *
+ * Scores are in the range 0.0 to 1.0. For all fields except speakerLoudness,
+ * lower values indicate less problematic audio.
+ *
+ * @typedef {Object} AnalysisResult
+ * @property {number} riskScore - Headline audio score. Predicts likelihood of failure of
+ *   downstream models including speech-to-text, voice activity detection, turn-taking or
+ *   speech-to-speech models. Lower indicates less problematic audio. Range: 0.0 to 1.0.
+ * @property {number} speakerReverb - Measure of speaker distance and reverberance.
+ *   Lower indicates less problematic audio. Range: 0.0 to 1.0.
+ * @property {number} speakerLoudness - Measure of speaker loudness. Range: 0.0 to 1.0.
+ * @property {number} interferingSpeech - Measure of interference from additional speakers
+ *   present in audio. Lower indicates less problematic audio. Range: 0.0 to 1.0.
+ * @property {number} mediaSpeech - Measure of interfering speech content from media devices,
+ *   e.g. from TVs, radios or phones. Lower indicates less problematic audio. Range: 0.0 to 1.0.
+ * @property {number} noise - Measure of ambient or environmental noise.
+ *   Lower indicates less problematic audio. Range: 0.0 to 1.0.
+ * @property {number} packetLoss - Measure of audio dropouts or discontinuities in the stream,
+ *   e.g. from packet loss, frame erasure, jitter or CPU overload.
+ *   Lower indicates less problematic audio. Range: 0.0 to 1.0.
+ */
+
+/**
+ * Buffers audio for later analysis by an {@link Analyzer}.
+ *
+ * The collector is designed to be fed audio chunks (for example on an audio thread) that the
+ * Analyzer analyzes later. All channels are mixed to mono for buffering. To buffer channels
+ * independently, create separate analyzer pairs.
+ *
+ * Created via {@link analyzerPair}.
+ */
+class Collector {
+  constructor(nativeCollector) {
+    this._collector = nativeCollector;
+  }
+
+  /**
+   * Configures the collector for specific audio settings.
+   *
+   * This must be called before buffering any audio. For the lowest delay use the sample rate
+   * and frame size returned by Model.getOptimalSampleRate() and Model.getOptimalNumFrames().
+   *
+   * Warning: Do not call from audio processing threads as this allocates memory.
+   *
+   * @param {number} sampleRate - Sample rate in Hz
+   * @param {number} numChannels - Number of audio channels
+   * @param {number} numFrames - Samples per channel provided to each buffering call
+   * @param {boolean} [allowVariableFrames=false] - Allow variable frame sizes (adds latency)
+   * @throws {Error} If the audio configuration is unsupported.
+   */
+  initialize(sampleRate, numChannels, numFrames, allowVariableFrames = false) {
+    native.collectorInitialize(
+      this._collector,
+      sampleRate,
+      numChannels,
+      numFrames,
+      allowVariableFrames,
+    );
+  }
+
+  /**
+   * Buffers interleaved audio (channel samples alternating in one buffer).
+   *
+   * @param {Float32Array} buffer - Interleaved audio buffer of size numChannels * numFrames
+   * @throws {Error} If buffering fails (collector not initialized, invalid buffer size, etc.)
+   */
+  bufferInterleaved(buffer) {
+    native.collectorBufferInterleaved(this._collector, buffer);
+  }
+
+  /**
+   * Buffers sequential/channel-contiguous audio (all channel 0 samples, then channel 1, etc.).
+   *
+   * @param {Float32Array} buffer - Sequential audio buffer of size numChannels * numFrames
+   * @throws {Error} If buffering fails (collector not initialized, invalid buffer size, etc.)
+   */
+  bufferSequential(buffer) {
+    native.collectorBufferSequential(this._collector, buffer);
+  }
+
+  /**
+   * Buffers planar audio (separate buffer for each channel).
+   *
+   * @param {Float32Array[]} buffers - Array of audio buffers, one per channel (max 16 channels)
+   * @throws {Error} If buffering fails (collector not initialized, too many channels, etc.)
+   */
+  bufferPlanar(buffers) {
+    native.collectorBufferPlanar(this._collector, buffers);
+  }
+}
+
+/**
+ * Runs an analysis model over the audio buffered by a {@link Collector}.
+ *
+ * Analysis models are computationally expensive and should be run off the audio thread.
+ *
+ * Created via {@link analyzerPair}.
+ */
+class Analyzer {
+  constructor(nativeAnalyzer) {
+    this._analyzer = nativeAnalyzer;
+  }
+
+  /**
+   * Clears all internal state and buffers of both the analyzer and its collector.
+   *
+   * Call this when the audio stream is interrupted or when seeking to prevent mispredictions
+   * from previous audio content. The collector stays initialized to the configured settings.
+   *
+   * Thread Safety: Real-time safe. Can be called from audio processing threads.
+   *
+   * @throws {Error} If the reset fails.
+   */
+  reset() {
+    native.analyzerReset(this._analyzer);
+  }
+
+  /**
+   * Analyzes the buffered signal.
+   *
+   * Runs a forward pass of the analysis model over a fixed length of audio, determined by the
+   * model. If called before the collector has buffered that length of audio, the tail of the
+   * input is analyzed as silence (zeros).
+   *
+   * Note: This function is not real-time safe. Avoid calling it from audio threads.
+   *
+   * @returns {AnalysisResult} The analysis result.
+   * @throws {Error} If analysis fails.
+   */
+  analyzeBuffered() {
+    return native.analyzerAnalyzeBuffered(this._analyzer);
+  }
+
+  /**
+   * Swaps in a renewed JWT bearer token while analysis continues uninterrupted.
+   *
+   * Only valid when the analyzer was created with a JWT license. If either the originally
+   * configured key or the new token is not a JWT, an error is thrown and the existing token
+   * stays in use.
+   *
+   * @param {string} token - The renewed JWT bearer token.
+   * @throws {Error} If token update is unsupported for the configured license.
+   */
+  updateBearerToken(token) {
+    native.analyzerUpdateBearerToken(this._analyzer, token);
+  }
+}
+
+/**
+ * Creates a collector/analyzer pair for non-real-time analysis.
+ *
+ * The {@link Collector} buffers audio chunks (for example on an audio thread) and the
+ * {@link Analyzer} analyzes the buffered audio later, off the audio thread. The collector
+ * retains a span of audio determined by the analysis model; as more samples are collected,
+ * old audio is discarded.
+ *
+ * For analyzing complete mono buffers already in memory, prefer {@link FileAnalyzer}.
+ *
+ * @param {Model} model - The loaded model instance
+ * @param {string} licenseKey - License key for the ai-coustics SDK
+ *   (generate your key at https://developers.ai-coustics.com/)
+ * @returns {{ collector: Collector, analyzer: Analyzer }} The collector/analyzer pair.
+ * @throws {Error} If the pair cannot be created.
+ *
+ * @example
+ * const { collector, analyzer } = analyzerPair(model, licenseKey);
+ * const sampleRate = model.getOptimalSampleRate();
+ * const numFrames = model.getOptimalNumFrames(sampleRate);
+ * collector.initialize(sampleRate, 1, numFrames, false);
+ */
+function analyzerPair(model, licenseKey) {
+  const pair = native.analyzerPair(model._model, licenseKey);
+  return {
+    collector: new Collector(pair.collector),
+    analyzer: new Analyzer(pair.analyzer),
+  };
+}
+
+/**
+ * Analyzes complete mono audio buffers.
+ *
+ * FileAnalyzer is a convenience wrapper around a {@link Collector} and {@link Analyzer} pair
+ * for non-real-time analysis of audio that is already loaded in memory. The windowing,
+ * zero-padding and reset logic is performed by the underlying SDK.
+ *
+ * Each call to analyze() configures the analyzer for mono input with the model's optimal frame
+ * size. It analyzes independent five-second windows, advancing the start of each window by
+ * stepSamples.
+ *
+ * For streaming or multi-channel analysis, use {@link analyzerPair} directly.
+ *
+ * @example
+ * const analyzer = new FileAnalyzer(model, licenseKey);
+ * const sampleRate = 16000;
+ * const audio = new Float32Array(8000);
+ * const results = analyzer.analyze(audio, sampleRate);
+ */
+class FileAnalyzer {
+  /**
+   * Creates a new file analyzer.
+   *
+   * @param {Model} model - The loaded model instance
+   * @param {string} licenseKey - License key for the ai-coustics SDK
+   *   (generate your key at https://developers.ai-coustics.com/)
+   * @throws {Error} If the analyzer cannot be created.
+   */
+  constructor(model, licenseKey) {
+    // Keep a reference to the model so it stays alive for the analyzer's lifetime: the native
+    // analyzer borrows the model's weights and must not outlive the model.
+    this._model = model;
+    this._analyzer = native.fileAnalyzerNew(model._model, licenseKey);
+  }
+
+  /**
+   * Analyzes a complete mono audio buffer.
+   *
+   * The input must contain mono f32 samples at sampleRate. No channel mixing or resampling is
+   * performed.
+   *
+   * The analyzer evaluates five-second windows. FileAnalyzer analyzes a window starting at sample
+   * 0, then repeats with a window starting stepSamples later.
+   *
+   * If audio is shorter than or equal to five seconds, it is padded with silence and only one
+   * result is returned. For longer signals, only complete five-second windows are analyzed after
+   * the first window.
+   *
+   * Note: This function is not real-time safe. Avoid calling it from audio threads.
+   *
+   * @param {Float32Array} audio - Mono audio samples to analyze
+   * @param {number} sampleRate - Sample rate of audio in Hz
+   * @param {number|null} [stepSamples=null] - Number of samples to advance between analysis
+   *   results. Defaults to the analysis window size (no overlap) when null.
+   * @returns {AnalysisResult[]} A list of analysis results.
+   * @throws {Error} If analysis fails.
+   */
+  analyze(audio, sampleRate, stepSamples = null) {
+    if (!(audio instanceof Float32Array)) {
+      audio = Float32Array.from(audio);
+    }
+
+    if (!(sampleRate > 0)) {
+      throw new Error("sampleRate must be greater than 0");
+    }
+
+    if (stepSamples != null && !(stepSamples > 0)) {
+      throw new Error("stepSamples must be greater than 0");
+    }
+
+    return native.fileAnalyzerAnalyze(
+      this._analyzer,
+      audio,
+      sampleRate,
+      stepSamples,
+    );
+  }
+}
+
+/**
  * OpenTelemetry configuration for a processor.
  *
  * Pass an instance as the third argument to Processor to override
@@ -664,6 +923,10 @@ module.exports = {
   Processor,
   ProcessorContext,
   VadContext,
+  Collector,
+  Analyzer,
+  FileAnalyzer,
+  analyzerPair,
   ProcessorParameter,
   VadParameter,
   getVersion,

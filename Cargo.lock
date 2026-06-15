@@ -30,9 +30,9 @@ dependencies = [
 
 [[package]]
 name = "aic-model-downloader"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be8fc3488f75a85532f88d696af6f591a0595f1f66ca2e617799be2c77a6c96c"
+checksum = "8b08bf0672f1d52bfbf19cbd368b3498d0dd1850330b252431cb5af02992d60c"
 dependencies = [
  "serde",
  "serde_json",
@@ -43,9 +43,9 @@ dependencies = [
 
 [[package]]
 name = "aic-sdk"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7de1cd1e16fe9b904ec0b20c4f44df1d252c1cdba31b069f600a344ab0d2c83b"
+checksum = "5acc8d1c88477b5ce806a1615d7efb7d6628956ff8a14d549a6699835e589393"
 dependencies = [
  "aic-model-downloader",
  "aic-sdk-sys",
@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "aic-sdk-node"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "aic-sdk",
  "neon",
@@ -62,13 +62,15 @@ dependencies = [
 
 [[package]]
 name = "aic-sdk-sys"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e14ca50f0e2140bf6ebe49dfbbb7c4a250a52bab5ea5f3c7fb1a245c46afb8bf"
+checksum = "9d7aa85d335f6916a9eac920a7d2bcfb28a9e1bb80299574d7ed717f280d0c59"
 dependencies = [
  "bindgen",
  "flate2",
+ "quote",
  "sha2",
+ "syn",
  "tar",
  "ureq",
  "zip",
