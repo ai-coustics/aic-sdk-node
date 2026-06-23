@@ -205,12 +205,21 @@ function testProcessBlocksWithVad() {
   const samples = new Float32Array(audio.interleavedSamples);
   const blockSize = optimalNumFrames * audio.numChannels;
   const speechDetectedResults = [];
+  const rawVadProbabilities = [];
 
   for (let offset = 0; offset + blockSize <= samples.length; offset += blockSize) {
     const chunk = samples.subarray(offset, offset + blockSize);
     processor.processInterleaved(chunk);
     speechDetectedResults.push(vadCtx.isSpeechDetected());
+    rawVadProbabilities.push(vadCtx.rawVadProbability());
   }
+
+  assert(
+    rawVadProbabilities.every(
+      (probability) => probability >= 0.0 && probability <= 1.0,
+    ),
+    "Raw VAD probabilities must be in the range 0.0 to 1.0",
+  );
 
   const expectedJson = fs.readFileSync(VAD_RESULTS_PATH, "utf8");
   const expectedResults = JSON.parse(expectedJson);

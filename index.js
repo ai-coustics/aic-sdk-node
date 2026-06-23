@@ -239,7 +239,10 @@ class ProcessorContext {
  * that created the VAD.
  *
  * Important:
- *   - The latency of the VAD prediction is equal to the backing model's processing latency.
+ *   - The latency of the VAD prediction is equal to the backing model's processing
+ *     latency, reported by ProcessorContext.getOutputDelay(). The prediction lags its
+ *     input by that many samples, so align speech decisions to the input timeline using
+ *     that delay.
  *   - If the backing model stops being processed, the VAD will not update its speech detection prediction.
  *
  * Created via Processor.getVadContext().
@@ -260,13 +263,43 @@ class VadContext {
    * Returns the VAD's prediction.
    *
    * Important:
-   *   - The latency of the VAD prediction is equal to the backing model's processing latency.
+   *   - The latency of the VAD prediction is equal to the backing model's processing
+   *     latency, reported by ProcessorContext.getOutputDelay(). The prediction lags its
+   *     input by that many samples, so align speech decisions to the input timeline using
+   *     that delay.
    *   - If the backing model stops being processed, the VAD will not update its speech detection prediction.
    *
    * @returns {boolean} True if speech is detected, False otherwise.
    */
   isSpeechDetected() {
     return native.vadContextIsSpeechDetected(this._context);
+  }
+
+  /**
+   * Returns the raw prediction of the VAD, without any processing.
+   *
+   * In contrast to the output of {@link isSpeechDetected}, the output of this function
+   * is the model's direct prediction without going through the SDK's VAD
+   * post-processing (i.e. speech hold duration, sensitivity thresholding, etc.).
+   *
+   * This value may be used to build other abstractions on top of this data.
+   *
+   * Note:
+   *   This value is only useful when using a VAD model. When using an energy-based VAD,
+   *   the raw prediction is set to 1.0 or 0.0 depending on whether isSpeechDetected()
+   *   is true or false.
+   *
+   * Important:
+   *   - The latency of the VAD prediction is equal to the backing model's processing
+   *     latency, reported by ProcessorContext.getOutputDelay(). The prediction lags its
+   *     input by that many samples, so align speech decisions to the input timeline using
+   *     that delay.
+   *   - If the backing model stops being processed, the VAD will not update its prediction.
+   *
+   * @returns {number} The raw VAD probability.
+   */
+  rawVadProbability() {
+    return native.vadContextRawVadProbability(this._context);
   }
 
   /**

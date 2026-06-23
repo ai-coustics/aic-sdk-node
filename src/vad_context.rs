@@ -39,6 +39,12 @@ impl VadContext {
         Ok(cx.boolean(detected))
     }
 
+    pub fn raw_vad_probability(mut cx: FunctionContext) -> JsResult<JsNumber> {
+        let this = cx.argument::<JsBox<VadContext>>(0)?;
+        let probability = this.inner.raw_vad_probability();
+        Ok(cx.number(probability as f64))
+    }
+
     pub fn set_parameter(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<VadContext>>(0)?;
         let parameter_arg = cx.argument::<JsValue>(1)?;
@@ -68,6 +74,10 @@ impl VadContext {
 
 pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()> {
     cx.export_function("vadContextIsSpeechDetected", VadContext::is_speech_detected)?;
+    cx.export_function(
+        "vadContextRawVadProbability",
+        VadContext::raw_vad_probability,
+    )?;
     cx.export_function("vadContextSetParameter", VadContext::set_parameter)?;
     cx.export_function("vadContextGetParameter", VadContext::get_parameter)?;
 
