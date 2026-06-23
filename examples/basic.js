@@ -138,6 +138,7 @@ try {
     vad.getParameter(VadParameter.MinimumSpeechDuration),
   );
   console.log("Speech Detected:", vad.isSpeechDetected());
+  console.log("Raw VAD Probability:", vad.rawVadProbability());
 } catch (error) {
   console.error("Failed to use VAD:", error.message);
   process.exit(1);

@@ -194,6 +194,10 @@ console.log(`VAD sensitivity: ${sensitivity}`);
 if (vadCtx.isSpeechDetected()) {
   console.log("Speech detected!");
 }
+
+// Read the raw VAD model output probability
+const probability = vadCtx.rawVadProbability();
+console.log(`Raw VAD probability: ${probability}`);
 ```
 
 ### Audio Analysis
