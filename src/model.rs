@@ -6,17 +6,30 @@ use neon::{
 
 pub struct Model {
     pub(crate) inner: aic_sdk::Model<'static>,
+    reported_bytes: i64,
 }
 
 impl Finalize for Model {
-    fn finalize<'a, C: neon::prelude::Context<'a>>(self, _: &mut C) {}
+    fn finalize<'a, C: neon::prelude::Context<'a>>(self, cx: &mut C) {
+        crate::mem::adjust(cx, -self.reported_bytes);
+    }
 }
 
 impl Model {
     pub fn from_file(mut cx: FunctionContext) -> JsResult<JsBox<Model>> {
         let path = cx.argument::<JsString>(0)?.value(&mut cx);
+        // The loaded weights are approximately the size of the model file on disk, so report
+        // that real per-instance number rather than a constant. Fall back to a conservative
+        // constant only if the file cannot be stat'd.
+        let reported_bytes = std::fs::metadata(&path)
+            .map(|m| m.len() as i64)
+            .unwrap_or(crate::mem::MODEL_FALLBACK_BYTES);
         let inner = aic_sdk::Model::from_file(path).or_else(|e| cx.throw_error(e.to_string()))?;
-        Ok(cx.boxed(Model { inner }))
+        crate::mem::adjust(&mut cx, reported_bytes);
+        Ok(cx.boxed(Model {
+            inner,
+            reported_bytes,
+        }))
     }
 
     pub fn download(mut cx: FunctionContext) -> JsResult<JsString> {

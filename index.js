@@ -366,8 +366,11 @@ class VadContext {
  * Created via {@link analyzerPair}.
  */
 class Collector {
-  constructor(nativeCollector) {
+  constructor(nativeCollector, model) {
     this._collector = nativeCollector;
+    // Retain the model so it stays alive for the pair's lifetime. The paired Analyzer borrows
+    // the model's weights (see Analyzer) and both are handed out together by analyzerPair.
+    this._model = model;
   }
 
   /**
@@ -433,8 +436,11 @@ class Collector {
  * Created via {@link analyzerPair}.
  */
 class Analyzer {
-  constructor(nativeAnalyzer) {
+  constructor(nativeAnalyzer, model) {
     this._analyzer = nativeAnalyzer;
+    // Keep a reference to the model so it stays alive for the analyzer's lifetime: the native
+    // analyzer borrows the model's weights and must not outlive the model.
+    this._model = model;
   }
 
   /**
@@ -507,8 +513,8 @@ class Analyzer {
 function analyzerPair(model, licenseKey) {
   const pair = native.analyzerPair(model._model, licenseKey);
   return {
-    collector: new Collector(pair.collector),
-    analyzer: new Analyzer(pair.analyzer),
+    collector: new Collector(pair.collector, model),
+    analyzer: new Analyzer(pair.analyzer, model),
   };
 }
 

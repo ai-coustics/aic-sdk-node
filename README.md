@@ -260,6 +260,25 @@ console.log("Risk score:", result.riskScore);
 analyzer.reset();
 ```
 
+## Memory management
+
+`Model`, `Processor`, `Analyzer`, `Collector` and `FileAnalyzer` hold large native
+allocations (model weights and per-stream working buffers). These objects are freed
+automatically when they are garbage collected, and the binding now reports their native
+footprint to V8 so the garbage collector applies the right amount of pressure and reclaims
+them promptly instead of letting native memory grow unbounded.
+
+Note that native cleanup runs on the event loop when the object is finalized, not
+synchronously at garbage collection. A **tight synchronous loop that creates many of these
+objects without ever yielding** (for example a `for` loop with no `await`) never gives the
+finalizers a chance to run, so native memory can still accumulate within that loop. If you
+create these objects per unit of work, either reuse a single instance across iterations or
+let the event loop turn between iterations (for example `await` an async boundary such as
+`setImmediate`).
+
+`reset()` on `ProcessorContext` and `Analyzer` only clears internal buffers/state; it does
+not release the object or its native memory.
+
 ## Examples
 
 See the [`basic.js`](examples/basic.js) file for a complete working example.

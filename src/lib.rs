@@ -1,6 +1,7 @@
 use neon::prelude::*;
 
 mod analyzer;
+mod mem;
 mod model;
 mod processor;
 mod processor_context;

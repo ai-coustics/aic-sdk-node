@@ -17,10 +17,13 @@ use crate::vad_context::VadContext;
 
 pub struct Processor {
     inner: Arc<Mutex<aic_sdk::Processor<'static>>>,
+    reported_bytes: i64,
 }
 
 impl Finalize for Processor {
-    fn finalize<'a, C: neon::prelude::Context<'a>>(self, _: &mut C) {}
+    fn finalize<'a, C: neon::prelude::Context<'a>>(self, cx: &mut C) {
+        crate::mem::adjust(cx, -self.reported_bytes);
+    }
 }
 
 fn parse_otel_config(
@@ -85,8 +88,10 @@ impl Processor {
         }
         .or_else(|e| cx.throw_error(e.to_string()))?;
 
+        crate::mem::adjust(&mut cx, crate::mem::PROCESSOR_BYTES);
         Ok(cx.boxed(Processor {
             inner: Arc::new(Mutex::new(processor)),
+            reported_bytes: crate::mem::PROCESSOR_BYTES,
         }))
     }
 

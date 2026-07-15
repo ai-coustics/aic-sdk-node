@@ -40,10 +40,13 @@ fn analysis_result_to_object<'a, C: Context<'a>>(
 /// Created together with an [`Analyzer`] via `analyzerPair`.
 pub struct Collector {
     inner: Mutex<aic_sdk::Collector>,
+    reported_bytes: i64,
 }
 
 impl Finalize for Collector {
-    fn finalize<'a, C: Context<'a>>(self, _: &mut C) {}
+    fn finalize<'a, C: Context<'a>>(self, cx: &mut C) {
+        crate::mem::adjust(cx, -self.reported_bytes);
+    }
 }
 
 /// Runs an analysis model over the audio buffered by a [`Collector`].
@@ -51,10 +54,13 @@ impl Finalize for Collector {
 /// Created together with a [`Collector`] via `analyzerPair`.
 pub struct Analyzer {
     inner: Mutex<aic_sdk::Analyzer<'static>>,
+    reported_bytes: i64,
 }
 
 impl Finalize for Analyzer {
-    fn finalize<'a, C: Context<'a>>(self, _: &mut C) {}
+    fn finalize<'a, C: Context<'a>>(self, cx: &mut C) {
+        crate::mem::adjust(cx, -self.reported_bytes);
+    }
 }
 
 /// Creates a collector/analyzer pair for non-real-time analysis.
@@ -72,11 +78,15 @@ pub fn analyzer_pair(mut cx: FunctionContext) -> JsResult<JsObject> {
     let (collector, analyzer) = aic_sdk::analyzer_pair(&model.inner, &license_key)
         .or_else(|e| cx.throw_error(e.to_string()))?;
 
+    crate::mem::adjust(&mut cx, crate::mem::COLLECTOR_BYTES);
     let collector_box = cx.boxed(Collector {
         inner: Mutex::new(collector),
+        reported_bytes: crate::mem::COLLECTOR_BYTES,
     });
+    crate::mem::adjust(&mut cx, crate::mem::ANALYZER_BYTES);
     let analyzer_box = cx.boxed(Analyzer {
         inner: Mutex::new(analyzer),
+        reported_bytes: crate::mem::ANALYZER_BYTES,
     });
 
     let result = cx.empty_object();
@@ -207,10 +217,13 @@ impl Analyzer {
 /// performs the windowing, zero-padding and reset logic itself. Created via `fileAnalyzerNew`.
 pub struct FileAnalyzer {
     inner: Mutex<aic_sdk::FileAnalyzer<'static, 'static>>,
+    reported_bytes: i64,
 }
 
 impl Finalize for FileAnalyzer {
-    fn finalize<'a, C: Context<'a>>(self, _: &mut C) {}
+    fn finalize<'a, C: Context<'a>>(self, cx: &mut C) {
+        crate::mem::adjust(cx, -self.reported_bytes);
+    }
 }
 
 impl FileAnalyzer {
@@ -234,8 +247,10 @@ impl FileAnalyzer {
         let file_analyzer = aic_sdk::FileAnalyzer::new(model_ref, &license_key)
             .or_else(|e| cx.throw_error(e.to_string()))?;
 
+        crate::mem::adjust(&mut cx, crate::mem::FILE_ANALYZER_BYTES);
         Ok(cx.boxed(FileAnalyzer {
             inner: Mutex::new(file_analyzer),
+            reported_bytes: crate::mem::FILE_ANALYZER_BYTES,
         }))
     }
 
