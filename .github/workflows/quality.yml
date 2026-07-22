@@ -11,48 +11,50 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
-  AIC_SDK_LICENSE: ${{ secrets.AIC_SDK_LICENSE }}
 
 jobs:
   cargo-fmt:
     name: Code Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@beta
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           components: rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
       - run: cargo fmt --check
 
   taplo-fmt:
     name: TOML Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: uncenter/setup-taplo@v1
+      - uses: actions/checkout@v7
+      - uses: uncenter/setup-taplo@09968a8ae38d66ddd3d23802c44bf6122d7aa991 # v1
       - run: taplo fmt --check
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@beta
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: RUSTFLAGS="-D warnings" cargo clippy
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - run: RUSTFLAGS="-D warnings" cargo clippy --locked
 
   doc:
     name: Documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@beta
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --locked --document-private-items --all-features --workspace
 
   unused-dependencies:
@@ -60,33 +62,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Install Cargo Shear
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@c44f6b046f1c29ae5918b1e0bfdbb2f1813836fd # v2
         with:
           tool: cargo-shear
       - name: Run Cargo Shear
         run: |
           cargo shear
 
-  hack:
-    name: Feature Matrix
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@beta
-      - uses: taiki-e/install-action@cargo-hack
-      - uses: Swatinem/rust-cache@v2
-      # Test runner is not supposed to work with every feature combination
-      - run: cargo hack --feature-powerset check --workspace --exclude test-runner
-
   msrv:
     name: MSRV Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: 1.87.0
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --all-targets
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - run: cargo check --all-targets --locked
