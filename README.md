@@ -28,15 +28,14 @@ const model = Model.fromFile(modelPath);
 // Get optimal configuration
 const sampleRate = model.getOptimalSampleRate();
 const numFrames = model.getOptimalNumFrames(sampleRate);
-const numChannels = 2;
 
 // Create and initialize processor
 const processor = new Processor(model, licenseKey);
-processor.initialize(sampleRate, numChannels, numFrames, false);
+processor.initialize(sampleRate, numFrames, false);
 
-// Process audio (Float32Array, interleaved: [L0, R0, L1, R1, ...])
-const audioBuffer = new Float32Array(numChannels * numFrames);
-processor.processInterleaved(audioBuffer);
+// Process mono audio (Float32Array, modified in-place)
+const audioBuffer = new Float32Array(numFrames);
+processor.process(audioBuffer);
 ```
 
 ## Usage
@@ -90,8 +89,7 @@ const processor = new Processor(model, licenseKey);
 // Initialize with audio settings
 processor.initialize(
   sampleRate,           // Sample rate in Hz (8000 - 192000)
-  numChannels,          // Number of audio channels
-  numFrames,            // Samples per channel per processing call
+  numFrames,            // Samples per processing call
   allowVariableFrames   // Allow variable frame sizes (default: false)
 );
 ```
@@ -137,17 +135,9 @@ processorContext.updateBearerToken(renewedJwt);
 ### Processing Audio
 
 ```javascript
-// Interleaved audio: [L0, R0, L1, R1, ...]
-const buffer = new Float32Array(numChannels * numFrames);
-processor.processInterleaved(buffer);
-
-// Sequential audio: [L0, L1, ..., R0, R1, ...]
-processor.processSequential(buffer);
-
-// Planar audio: separate buffer per channel
-const left = new Float32Array(numFrames);
-const right = new Float32Array(numFrames);
-processor.processPlanar([left, right]);
+// Mono audio (Float32Array), enhanced in-place
+const buffer = new Float32Array(numFrames);
+processor.process(buffer);
 ```
 
 ### Processor Context
@@ -203,8 +193,8 @@ console.log(`Raw VAD probability: ${probability}`);
 ### Audio Analysis
 
 Analysis models (for example `tyto-l-16khz`) score audio quality instead of enhancing it. Use
-`FileAnalyzer` for complete mono buffers already in memory, or `analyzerPair` for streaming and
-multi-channel analysis.
+`FileAnalyzer` for complete mono buffers already in memory, or `analyzerPair` for streaming
+analysis.
 
 #### FileAnalyzer
 
@@ -246,11 +236,11 @@ const { collector, analyzer } = analyzerPair(model, licenseKey);
 
 const sampleRate = model.getOptimalSampleRate();
 const numFrames = model.getOptimalNumFrames(sampleRate);
-collector.initialize(sampleRate, 1, numFrames, false);
+collector.initialize(sampleRate, numFrames, false);
 
-// Buffer audio chunks (for example on an audio thread).
+// Buffer mono audio chunks (for example on an audio thread).
 const chunk = new Float32Array(numFrames);
-collector.bufferInterleaved(chunk);
+collector.buffer(chunk);
 
 // Analyze the buffered audio off the audio thread.
 const result = analyzer.analyzeBuffered();

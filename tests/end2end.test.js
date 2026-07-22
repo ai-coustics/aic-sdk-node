@@ -16,151 +16,39 @@ const {
   getAnalysisModelPath,
   licenseKey,
   loadWavAudio,
-  interleavedToSequential,
-  sequentialToInterleaved,
-  interleavedToPlanar,
-  planarToInterleaved,
   approxEqual,
 } = require("./common");
 
 /**
- * Tests audio enhancement by processing an entire stereo file containing voice in a single pass.
+ * Tests audio enhancement by processing an entire mono file containing voice in a single pass.
  * Uses a non-optimal frame size (full file length) to verify the internal frame adapter handles
- * arbitrary input sizes correctly. Uses a reduced enhancement level (0.9) and slightly lower
- * voice gain (0.9) to exercise non-default parameter paths. Compares output against a
- * pre-generated reference file.
+ * arbitrary input sizes correctly. Uses a reduced enhancement level (0.9) to exercise non-default
+ * parameter paths. Compares output against a pre-generated reference file.
  */
-function testProcessFullFileInterleaved() {
-  console.log("Running: testProcessFullFileInterleaved");
+function testProcessFullFile() {
+  console.log("Running: testProcessFullFile");
 
   const audio = loadWavAudio(TEST_AUDIO_PATH);
   const model = Model.fromFile(getTestModelPath());
 
   const processor = new Processor(model, licenseKey());
-  processor.initialize(
-    audio.sampleRate,
-    audio.numChannels,
-    audio.numFrames,
-    false,
-  );
+  processor.initialize(audio.sampleRate, audio.numFrames, false);
 
   const procCtx = processor.getProcessorContext();
   procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.9);
 
-  const samples = new Float32Array(audio.interleavedSamples);
-  processor.processInterleaved(samples);
+  const samples = new Float32Array(audio.samples);
+  processor.process(samples);
 
   const expectedOutput = loadWavAudio(TEST_AUDIO_ENHANCED_PATH);
 
   let mismatchCount = 0;
   for (let i = 0; i < samples.length; i++) {
-    if (!approxEqual(samples[i], expectedOutput.interleavedSamples[i], 1e-6)) {
+    if (!approxEqual(samples[i], expectedOutput.samples[i], 1e-6)) {
       mismatchCount++;
       if (mismatchCount <= 5) {
         console.log(
-          `  Sample mismatch at index ${i}: got ${samples[i]}, expected ${expectedOutput.interleavedSamples[i]}`,
-        );
-      }
-    }
-  }
-
-  assert.strictEqual(
-    mismatchCount,
-    0,
-    `${mismatchCount} samples did not match expected output`,
-  );
-  console.log("  PASSED");
-}
-
-/**
- * Tests audio enhancement using sequential sample layout.
- * Converts the test audio to sequential format (all samples for channel 0, then channel 1, etc.),
- * processes it, and verifies the output matches the reference after converting back to interleaved.
- */
-function testProcessFullFileSequential() {
-  console.log("Running: testProcessFullFileSequential");
-
-  const audio = loadWavAudio(TEST_AUDIO_PATH);
-  const model = Model.fromFile(getTestModelPath());
-
-  const processor = new Processor(model, licenseKey());
-  processor.initialize(
-    audio.sampleRate,
-    audio.numChannels,
-    audio.numFrames,
-    false,
-  );
-
-  const procCtx = processor.getProcessorContext();
-  procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.9);
-
-  const samples = interleavedToSequential(
-    audio.interleavedSamples,
-    audio.numChannels,
-  );
-  processor.processSequential(samples);
-
-  const result = sequentialToInterleaved(samples, audio.numChannels);
-  const expectedOutput = loadWavAudio(TEST_AUDIO_ENHANCED_PATH);
-
-  let mismatchCount = 0;
-  for (let i = 0; i < result.length; i++) {
-    if (!approxEqual(result[i], expectedOutput.interleavedSamples[i], 1e-6)) {
-      mismatchCount++;
-      if (mismatchCount <= 5) {
-        console.log(
-          `  Sample mismatch at index ${i}: got ${result[i]}, expected ${expectedOutput.interleavedSamples[i]}`,
-        );
-      }
-    }
-  }
-
-  assert.strictEqual(
-    mismatchCount,
-    0,
-    `${mismatchCount} samples did not match expected output`,
-  );
-  console.log("  PASSED");
-}
-
-/**
- * Tests audio enhancement using planar sample layout.
- * Converts the test audio to planar format (separate buffer per channel),
- * processes it, and verifies the output matches the reference after converting back to interleaved.
- */
-function testProcessFullFilePlanar() {
-  console.log("Running: testProcessFullFilePlanar");
-
-  const audio = loadWavAudio(TEST_AUDIO_PATH);
-  const model = Model.fromFile(getTestModelPath());
-
-  const processor = new Processor(model, licenseKey());
-  processor.initialize(
-    audio.sampleRate,
-    audio.numChannels,
-    audio.numFrames,
-    false,
-  );
-
-  const procCtx = processor.getProcessorContext();
-  procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.9);
-
-  const planar = interleavedToPlanar(
-    audio.interleavedSamples,
-    audio.numChannels,
-  );
-  processor.processPlanar(planar);
-
-  const result = planarToInterleaved(planar);
-  const expectedOutput = loadWavAudio(TEST_AUDIO_ENHANCED_PATH);
-
-  let mismatchCount = 0;
-  for (let i = 0; i < result.length; i++) {
-    if (!approxEqual(result[i], expectedOutput.interleavedSamples[i], 1e-6)) {
-      mismatchCount++;
-      if (mismatchCount <= 5) {
-        console.log(
-          `  Sample mismatch at index ${i}: got ${result[i]}, expected ${expectedOutput.interleavedSamples[i]}`,
+          `  Sample mismatch at index ${i}: got ${samples[i]}, expected ${expectedOutput.samples[i]}`,
         );
       }
     }
@@ -190,26 +78,21 @@ function testProcessBlocksWithVad() {
   const optimalNumFrames = model.getOptimalNumFrames(audio.sampleRate);
 
   const processor = new Processor(model, licenseKey());
-  processor.initialize(
-    audio.sampleRate,
-    audio.numChannels,
-    optimalNumFrames,
-    false,
-  );
+  processor.initialize(audio.sampleRate, optimalNumFrames, false);
 
   const procCtx = processor.getProcessorContext();
   procCtx.setParameter(ProcessorParameter.Bypass, 1.0);
 
   const vadCtx = processor.getVadContext();
 
-  const samples = new Float32Array(audio.interleavedSamples);
-  const blockSize = optimalNumFrames * audio.numChannels;
+  const samples = new Float32Array(audio.samples);
+  const blockSize = optimalNumFrames;
   const speechDetectedResults = [];
   const rawVadProbabilities = [];
 
   for (let offset = 0; offset + blockSize <= samples.length; offset += blockSize) {
     const chunk = samples.subarray(offset, offset + blockSize);
-    processor.processInterleaved(chunk);
+    processor.process(chunk);
     speechDetectedResults.push(vadCtx.isSpeechDetected());
     rawVadProbabilities.push(vadCtx.rawVadProbability());
   }
@@ -247,25 +130,20 @@ function testProcessBlocksWithVadAndEnhancement() {
   const optimalNumFrames = model.getOptimalNumFrames(audio.sampleRate);
 
   const processor = new Processor(model, licenseKey());
-  processor.initialize(
-    audio.sampleRate,
-    audio.numChannels,
-    optimalNumFrames,
-    false,
-  );
+  processor.initialize(audio.sampleRate, optimalNumFrames, false);
 
   const procCtx = processor.getProcessorContext();
   procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.5);
 
   const vadCtx = processor.getVadContext();
 
-  const samples = new Float32Array(audio.interleavedSamples);
-  const blockSize = optimalNumFrames * audio.numChannels;
+  const samples = new Float32Array(audio.samples);
+  const blockSize = optimalNumFrames;
   const speechDetectedResults = [];
 
   for (let offset = 0; offset + blockSize <= samples.length; offset += blockSize) {
     const chunk = samples.subarray(offset, offset + blockSize);
-    processor.processInterleaved(chunk);
+    processor.process(chunk);
     speechDetectedResults.push(vadCtx.isSpeechDetected());
   }
 
@@ -366,12 +244,12 @@ function testAnalyzerPairDirect() {
 
   const sampleRate = 16000;
   const numFrames = model.getOptimalNumFrames(sampleRate);
-  collector.initialize(sampleRate, 1, numFrames, false);
+  collector.initialize(sampleRate, numFrames, false);
 
   // Buffer five seconds of silence in optimal-size frames, then analyze.
   const frame = new Float32Array(numFrames);
   for (let buffered = 0; buffered < sampleRate * 5; buffered += numFrames) {
-    collector.bufferInterleaved(frame);
+    collector.buffer(frame);
   }
 
   const result = analyzer.analyzeBuffered();
@@ -400,7 +278,7 @@ function testAnalyzerRejectsNonAnalysisModel() {
 }
 
 /**
- * Tests that buffering before the collector is initialized is rejected for every layout.
+ * Tests that buffering before the collector is initialized is rejected.
  */
 function testCollectorRejectsBufferingBeforeInitialize() {
   console.log("Running: testCollectorRejectsBufferingBeforeInitialize");
@@ -409,22 +287,14 @@ function testCollectorRejectsBufferingBeforeInitialize() {
   const { collector } = analyzerPair(model, licenseKey());
 
   assert.throws(
-    () => collector.bufferInterleaved(new Float32Array(4)),
-    /must be initialized/,
-  );
-  assert.throws(
-    () => collector.bufferSequential(new Float32Array(4)),
-    /must be initialized/,
-  );
-  assert.throws(
-    () => collector.bufferPlanar([new Float32Array(4)]),
+    () => collector.buffer(new Float32Array(4)),
     /must be initialized/,
   );
   console.log("  PASSED");
 }
 
 /**
- * Tests that the collector rejects buffers whose layout does not match the initialized config.
+ * Tests that the collector rejects buffers whose size does not match the initialized config.
  */
 function testCollectorValidatesLayout() {
   console.log("Running: testCollectorValidatesLayout");
@@ -434,42 +304,12 @@ function testCollectorValidatesLayout() {
   const numFrames = model.getOptimalNumFrames(sampleRate);
 
   const { collector } = analyzerPair(model, licenseKey());
-  collector.initialize(sampleRate, 2, numFrames, false);
+  collector.initialize(sampleRate, numFrames, false);
 
-  // Planar with the wrong number of channels.
+  // A buffer whose length differs from the initialized frame count is rejected.
   assert.throws(
-    () => collector.bufferPlanar([new Float32Array(numFrames)]),
+    () => collector.buffer(new Float32Array(numFrames - 1)),
     /differs from the one provided/,
-  );
-  // Planar with mismatched per-channel frame counts.
-  assert.throws(
-    () =>
-      collector.bufferPlanar([
-        new Float32Array(numFrames),
-        new Float32Array(numFrames - 1),
-      ]),
-    /differs from the one provided/,
-  );
-  // Interleaved/sequential lengths that are not a multiple of the channel count.
-  assert.throws(
-    () => collector.bufferInterleaved(new Float32Array(3)),
-    /differs from the one provided/,
-  );
-  assert.throws(
-    () => collector.bufferSequential(new Float32Array(3)),
-    /differs from the one provided/,
-  );
-
-  // More than 16 planar channels is rejected by the binding before reaching the SDK.
-  const { collector: monoCollector } = analyzerPair(model, licenseKey());
-  monoCollector.initialize(sampleRate, 1, numFrames, false);
-  const seventeenChannels = Array.from(
-    { length: 17 },
-    () => new Float32Array(numFrames),
-  );
-  assert.throws(
-    () => monoCollector.bufferPlanar(seventeenChannels),
-    /Maximum 16 channels/,
   );
   console.log("  PASSED");
 }
@@ -490,35 +330,6 @@ function testAnalyzerPairRejectsLicenseWithNul() {
 }
 
 /**
- * Tests that all three buffer layouts can be fed to the collector and that the analyzer then
- * returns a valid result. Channels are mixed to mono for buffering.
- */
-function testCollectorBuffersAllLayouts() {
-  console.log("Running: testCollectorBuffersAllLayouts");
-
-  const model = Model.fromFile(getAnalysisModelPath());
-  const sampleRate = model.getOptimalSampleRate();
-  const numFrames = model.getOptimalNumFrames(sampleRate);
-  const numChannels = 2;
-
-  const { collector, analyzer } = analyzerPair(model, licenseKey());
-  collector.initialize(sampleRate, numChannels, numFrames, false);
-
-  const planar = [
-    new Float32Array(numFrames),
-    new Float32Array(numFrames),
-  ];
-  collector.bufferPlanar(planar);
-
-  const contiguous = new Float32Array(numChannels * numFrames);
-  collector.bufferInterleaved(contiguous);
-  collector.bufferSequential(contiguous);
-
-  assertValidAnalysisResult(analyzer.analyzeBuffered());
-  console.log("  PASSED");
-}
-
-/**
  * Tests that variable frame sizes are accepted when enabled and rejected when disabled.
  */
 function testCollectorVariableFrames() {
@@ -527,24 +338,23 @@ function testCollectorVariableFrames() {
   const model = Model.fromFile(getAnalysisModelPath());
   const sampleRate = model.getOptimalSampleRate();
   const numFrames = model.getOptimalNumFrames(sampleRate);
-  const numChannels = 2;
-  const full = new Float32Array(numChannels * numFrames);
-  const short = new Float32Array(numChannels * 20);
+  const full = new Float32Array(numFrames);
+  const short = new Float32Array(20);
 
   // Disabled: a short buffer after a full one is rejected.
   const disabled = analyzerPair(model, licenseKey());
-  disabled.collector.initialize(sampleRate, numChannels, numFrames, false);
-  disabled.collector.bufferInterleaved(full);
+  disabled.collector.initialize(sampleRate, numFrames, false);
+  disabled.collector.buffer(full);
   assert.throws(
-    () => disabled.collector.bufferInterleaved(short),
+    () => disabled.collector.buffer(short),
     /differs from the one provided/,
   );
 
   // Enabled: a short buffer is accepted.
   const enabled = analyzerPair(model, licenseKey());
-  enabled.collector.initialize(sampleRate, numChannels, numFrames, true);
-  enabled.collector.bufferInterleaved(full);
-  enabled.collector.bufferInterleaved(short); // should not throw
+  enabled.collector.initialize(sampleRate, numFrames, true);
+  enabled.collector.buffer(full);
+  enabled.collector.buffer(short); // should not throw
   console.log("  PASSED");
 }
 
@@ -557,15 +367,14 @@ function testAnalyzerResetKeepsCollectorInitialized() {
   const model = Model.fromFile(getAnalysisModelPath());
   const sampleRate = model.getOptimalSampleRate();
   const numFrames = model.getOptimalNumFrames(sampleRate);
-  const numChannels = 2;
 
   const { collector, analyzer } = analyzerPair(model, licenseKey());
-  collector.initialize(sampleRate, numChannels, numFrames, false);
+  collector.initialize(sampleRate, numFrames, false);
 
   analyzer.reset();
 
   // Buffering still works after reset because the collector stays initialized.
-  collector.bufferInterleaved(new Float32Array(numChannels * numFrames));
+  collector.buffer(new Float32Array(numFrames));
   assertValidAnalysisResult(analyzer.analyzeBuffered());
   console.log("  PASSED");
 }
@@ -575,9 +384,7 @@ function runAllTests() {
   console.log("Running end-to-end tests...\n");
 
   const tests = [
-    testProcessFullFileInterleaved,
-    testProcessFullFileSequential,
-    testProcessFullFilePlanar,
+    testProcessFullFile,
     testProcessBlocksWithVad,
     testProcessBlocksWithVadAndEnhancement,
     testFileAnalyzerShortAudio,
@@ -587,7 +394,6 @@ function runAllTests() {
     testCollectorRejectsBufferingBeforeInitialize,
     testCollectorValidatesLayout,
     testAnalyzerPairRejectsLicenseWithNul,
-    testCollectorBuffersAllLayouts,
     testCollectorVariableFrames,
     testAnalyzerResetKeepsCollectorInitialized,
   ];

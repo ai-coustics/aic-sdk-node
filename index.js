@@ -359,9 +359,8 @@ class VadContext {
 /**
  * Buffers audio for later analysis by an {@link Analyzer}.
  *
- * The collector is designed to be fed audio chunks (for example on an audio thread) that the
- * Analyzer analyzes later. All channels are mixed to mono for buffering. To buffer channels
- * independently, create separate analyzer pairs.
+ * The collector is designed to be fed mono audio chunks (for example on an audio thread) that
+ * the Analyzer analyzes later.
  *
  * Created via {@link analyzerPair}.
  */
@@ -379,49 +378,27 @@ class Collector {
    * Warning: Do not call from audio processing threads as this allocates memory.
    *
    * @param {number} sampleRate - Sample rate in Hz
-   * @param {number} numChannels - Number of audio channels
-   * @param {number} numFrames - Samples per channel provided to each buffering call
+   * @param {number} numFrames - Samples provided to each buffering call
    * @param {boolean} [allowVariableFrames=false] - Allow variable frame sizes (adds latency)
    * @throws {Error} If the audio configuration is unsupported.
    */
-  initialize(sampleRate, numChannels, numFrames, allowVariableFrames = false) {
+  initialize(sampleRate, numFrames, allowVariableFrames = false) {
     native.collectorInitialize(
       this._collector,
       sampleRate,
-      numChannels,
       numFrames,
       allowVariableFrames,
     );
   }
 
   /**
-   * Buffers interleaved audio (channel samples alternating in one buffer).
+   * Buffers mono audio.
    *
-   * @param {Float32Array} buffer - Interleaved audio buffer of size numChannels * numFrames
+   * @param {Float32Array} samples - Mono audio buffer of size numFrames
    * @throws {Error} If buffering fails (collector not initialized, invalid buffer size, etc.)
    */
-  bufferInterleaved(buffer) {
-    native.collectorBufferInterleaved(this._collector, buffer);
-  }
-
-  /**
-   * Buffers sequential/channel-contiguous audio (all channel 0 samples, then channel 1, etc.).
-   *
-   * @param {Float32Array} buffer - Sequential audio buffer of size numChannels * numFrames
-   * @throws {Error} If buffering fails (collector not initialized, invalid buffer size, etc.)
-   */
-  bufferSequential(buffer) {
-    native.collectorBufferSequential(this._collector, buffer);
-  }
-
-  /**
-   * Buffers planar audio (separate buffer for each channel).
-   *
-   * @param {Float32Array[]} buffers - Array of audio buffers, one per channel (max 16 channels)
-   * @throws {Error} If buffering fails (collector not initialized, too many channels, etc.)
-   */
-  bufferPlanar(buffers) {
-    native.collectorBufferPlanar(this._collector, buffers);
+  buffer(samples) {
+    native.collectorBuffer(this._collector, samples);
   }
 }
 
@@ -523,7 +500,7 @@ function analyzerPair(model, licenseKey) {
  * size. It analyzes independent five-second windows, advancing the start of each window by
  * stepSamples.
  *
- * For streaming or multi-channel analysis, use {@link analyzerPair} directly.
+ * For streaming analysis, use {@link analyzerPair} directly.
  *
  * @example
  * const analyzer = new FileAnalyzer(model, licenseKey);
@@ -781,9 +758,9 @@ class Model {
  * const processor = new Processor(model, licenseKey);
  * const sampleRate = model.getOptimalSampleRate();
  * const numFrames = model.getOptimalNumFrames(sampleRate);
- * processor.initialize(sampleRate, 2, numFrames, false);
- * const audio = new Float32Array(2 * numFrames);
- * processor.processInterleaved(audio);
+ * processor.initialize(sampleRate, numFrames, false);
+ * const audio = new Float32Array(numFrames);
+ * processor.process(audio);
  */
 class Processor {
   /**
@@ -802,7 +779,7 @@ class Processor {
    * @example
    * const model = Model.fromFile("/path/to/model.aicmodel");
    * const processor = new Processor(model, licenseKey, OtelConfig.withSessionId("session-1"));
-   * processor.initialize(sampleRate, numChannels, numFrames, false);
+   * processor.initialize(sampleRate, numFrames, false);
    */
   constructor(model, licenseKey, otelConfig = null) {
     this._processor = native.processorNew(model._model, licenseKey, otelConfig);
@@ -817,80 +794,39 @@ class Processor {
    *
    * Warning: Do not call from audio processing threads as this allocates memory.
    *
-   * Note: All channels are mixed to mono for processing. To process channels
-   * independently, create separate Processor instances.
-   *
    * @param {number} sampleRate - Sample rate in Hz (8000 - 192000)
-   * @param {number} numChannels - Number of audio channels
-   * @param {number} numFrames - Samples per channel provided to each processing call
+   * @param {number} numFrames - Samples provided to each processing call
    * @param {boolean} [allowVariableFrames=false] - Allow variable frame sizes (adds latency)
    * @throws {Error} If the audio configuration is unsupported.
    *
    * @example
    * const sampleRate = model.getOptimalSampleRate();
    * const numFrames = model.getOptimalNumFrames(sampleRate);
-   * processor.initialize(sampleRate, 2, numFrames, false);
+   * processor.initialize(sampleRate, numFrames, false);
    */
-  initialize(sampleRate, numChannels, numFrames, allowVariableFrames = false) {
+  initialize(sampleRate, numFrames, allowVariableFrames = false) {
     native.processorInitialize(
       this._processor,
       sampleRate,
-      numChannels,
       numFrames,
       allowVariableFrames,
     );
   }
 
   /**
-   * Processes interleaved audio (all channels mixed in one buffer).
+   * Processes mono audio.
    *
    * Enhances speech in the provided audio buffer. The buffer is modified in-place.
    *
-   * @param {Float32Array} buffer - Interleaved audio buffer (channel samples alternating)
+   * @param {Float32Array} samples - Mono audio buffer of size numFrames
    * @throws {Error} If processing fails (processor not initialized, invalid buffer size, etc.)
    *
    * @example
-   * // For stereo: [L0, R0, L1, R1, L2, R2, ...]
-   * const buffer = new Float32Array(numChannels * numFrames);
-   * processor.processInterleaved(buffer);
+   * const samples = new Float32Array(numFrames);
+   * processor.process(samples);
    */
-  processInterleaved(buffer) {
-    native.processorProcessInterleaved(this._processor, buffer);
-  }
-
-  /**
-   * Processes sequential/channel-contiguous audio.
-   *
-   * Enhances speech in the provided audio buffer. The buffer is modified in-place.
-   * All samples for each channel are stored contiguously.
-   *
-   * @param {Float32Array} buffer - Sequential audio buffer (all channel 0 samples, then all channel 1 samples, etc.)
-   * @throws {Error} If processing fails (processor not initialized, invalid buffer size, etc.)
-   *
-   * @example
-   * // For stereo: [L0, L1, L2, ..., R0, R1, R2, ...]
-   * const buffer = new Float32Array(numChannels * numFrames);
-   * processor.processSequential(buffer);
-   */
-  processSequential(buffer) {
-    native.processorProcessSequential(this._processor, buffer);
-  }
-
-  /**
-   * Processes planar audio (separate buffer for each channel).
-   *
-   * Enhances speech in the provided audio buffers. The buffers are modified in-place.
-   *
-   * @param {Float32Array[]} buffers - Array of audio buffers, one per channel (max 16 channels)
-   * @throws {Error} If processing fails (processor not initialized, too many channels, invalid buffer size, etc.)
-   *
-   * @example
-   * const left = new Float32Array(numFrames);
-   * const right = new Float32Array(numFrames);
-   * processor.processPlanar([left, right]);
-   */
-  processPlanar(buffers) {
-    native.processorProcessPlanar(this._processor, buffers);
+  process(samples) {
+    native.processorProcess(this._processor, samples);
   }
 
   /**

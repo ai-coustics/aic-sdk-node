@@ -62,27 +62,36 @@ console.log("Input file:", inputFile);
 console.log("Output file:", outputFile);
 
 // Read input file
-let wav;
 let samples;
 let sampleRate;
-let numChannels;
 
 try {
   const buffer = fs.readFileSync(inputFile);
-  wav = new WaveFile(buffer);
+  const wav = new WaveFile(buffer);
   sampleRate = wav.fmt.sampleRate;
-  numChannels = wav.fmt.numChannels;
+  const numChannels = wav.fmt.numChannels;
 
   // Convert to 32-bit float samples (normalized to -1.0 to 1.0)
   wav.toBitDepth("32f");
-  const rawSamples = wav.getSamples(true, Float32Array);
+  const interleaved = wav.getSamples(true, Float32Array);
 
-  // getSamples with interleave=true returns interleaved samples
-  samples = rawSamples;
+  // The SDK processes mono audio. Down-mix multi-channel input by averaging channels.
+  if (numChannels === 1) {
+    samples = interleaved;
+  } else {
+    const frames = interleaved.length / numChannels;
+    samples = new Float32Array(frames);
+    for (let frame = 0; frame < frames; frame++) {
+      let sum = 0;
+      for (let ch = 0; ch < numChannels; ch++) {
+        sum += interleaved[frame * numChannels + ch];
+      }
+      samples[frame] = sum / numChannels;
+    }
+  }
 
-  const samplesPerChannel = samples.length / numChannels;
   console.log(
-    `Loaded: ${sampleRate}Hz, ${numChannels} channels, ${samplesPerChannel} samples`,
+    `Loaded: ${sampleRate}Hz, ${numChannels} channel(s) -> mono, ${samples.length} samples`,
   );
 } catch (error) {
   console.error("Failed to read input file:", error.message);
@@ -111,7 +120,7 @@ console.log("Chunk Size:", numFrames, "samples");
 let processor;
 try {
   processor = new Processor(model, process.env.AIC_SDK_LICENSE);
-  processor.initialize(sampleRate, numChannels, numFrames, false);
+  processor.initialize(sampleRate, numFrames, false);
 } catch (error) {
   console.error("Failed to create processor:", error.message);
   process.exit(1);
@@ -138,41 +147,37 @@ try {
 }
 
 // Calculate padding and total samples
-const samplesPerChannel = samples.length / numChannels;
-const paddedLength = samplesPerChannel + outputDelay;
+const paddedLength = samples.length + outputDelay;
 const totalChunks = Math.ceil(paddedLength / numFrames);
 const totalPaddedSamples = totalChunks * numFrames;
 
-console.log("Original samples per channel:", samplesPerChannel);
-console.log("Padded samples per channel:", totalPaddedSamples);
+console.log("Original samples:", samples.length);
+console.log("Padded samples:", totalPaddedSamples);
 console.log("Total chunks to process:", totalChunks);
 
-// Create padded input buffer (interleaved format)
-const paddedInput = new Float32Array(totalPaddedSamples * numChannels);
+// Create padded input buffer
+const paddedInput = new Float32Array(totalPaddedSamples);
 
 // Copy original audio to padded buffer
 paddedInput.set(samples);
 // Remaining samples are already zero (padding at the end to flush output delay)
 
 // Create output buffer
-const outputBuffer = new Float32Array(totalPaddedSamples * numChannels);
+const outputBuffer = new Float32Array(totalPaddedSamples);
 
 // Process in chunks
 console.log("Processing...");
-const chunkBuffer = new Float32Array(numFrames * numChannels);
+const chunkBuffer = new Float32Array(numFrames);
 
 for (let chunk = 0; chunk < totalChunks; chunk++) {
-  const inputOffset = chunk * numFrames * numChannels;
-  const outputOffset = chunk * numFrames * numChannels;
+  const offset = chunk * numFrames;
 
   // Copy chunk from padded input
-  for (let i = 0; i < chunkBuffer.length; i++) {
-    chunkBuffer[i] = paddedInput[inputOffset + i] || 0;
-  }
+  chunkBuffer.set(paddedInput.subarray(offset, offset + numFrames));
 
   // Process chunk (in-place)
   try {
-    processor.processInterleaved(chunkBuffer);
+    processor.process(chunkBuffer);
   } catch (error) {
     console.error(`Failed to process chunk ${chunk}:`, error.message);
     process.exit(1);
@@ -186,37 +191,17 @@ for (let chunk = 0; chunk < totalChunks; chunk++) {
   );
 
   // Copy processed chunk to output
-  outputBuffer.set(chunkBuffer, outputOffset);
+  outputBuffer.set(chunkBuffer, offset);
 }
 console.log();
 
 // Remove output delay from the beginning
-const delayOffset = outputDelay * numChannels;
-const finalLength = samplesPerChannel * numChannels;
-const finalOutput = outputBuffer.slice(delayOffset, delayOffset + finalLength);
+const finalOutput = outputBuffer.slice(outputDelay, outputDelay + samples.length);
 
-// Write output file
+// Write mono output file
 try {
   const outWav = new WaveFile();
-
-  // Create WAV with interleaved samples
-  // fromScratch expects: numChannels, sampleRate, bitDepth, samples
-  // For interleaved data with multiple channels, we need to deinterleave
-  if (numChannels === 1) {
-    outWav.fromScratch(1, sampleRate, "32f", finalOutput);
-  } else {
-    // Deinterleave for multi-channel output
-    const channelData = [];
-    for (let ch = 0; ch < numChannels; ch++) {
-      const channelSamples = new Float32Array(samplesPerChannel);
-      for (let i = 0; i < samplesPerChannel; i++) {
-        channelSamples[i] = finalOutput[i * numChannels + ch];
-      }
-      channelData.push(channelSamples);
-    }
-    outWav.fromScratch(numChannels, sampleRate, "32f", channelData);
-  }
-
+  outWav.fromScratch(1, sampleRate, "32f", finalOutput);
   fs.writeFileSync(outputFile, outWav.toBuffer());
   console.log("Output written to:", outputFile);
 } catch (error) {

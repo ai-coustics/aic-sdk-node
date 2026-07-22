@@ -1,7 +1,6 @@
 use std::sync::Mutex;
 
 use neon::{
-    handle::Handle,
     object::Object,
     prelude::{Context, FunctionContext},
     result::{JsResult, NeonResult},
@@ -90,15 +89,14 @@ impl Collector {
     pub fn initialize(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<Collector>>(0)?;
         let sample_rate = cx.argument::<JsNumber>(1)?.value(&mut cx) as u32;
-        let num_channels = cx.argument::<JsNumber>(2)?.value(&mut cx) as u16;
-        let num_frames = cx.argument::<JsNumber>(3)?.value(&mut cx) as usize;
-        let allow_variable_frames = cx.argument::<JsBoolean>(4)?.value(&mut cx);
+        let num_frames = cx.argument::<JsNumber>(2)?.value(&mut cx) as usize;
+        let allow_variable_frames = cx.argument::<JsBoolean>(3)?.value(&mut cx);
 
         let mut collector = this.inner.lock().unwrap();
 
         let config = aic_sdk::ProcessorConfig {
             sample_rate,
-            num_channels,
+            num_channels: 1,
             num_frames,
             allow_variable_frames,
         };
@@ -110,7 +108,7 @@ impl Collector {
         Ok(cx.undefined())
     }
 
-    pub fn buffer_interleaved(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+    pub fn buffer(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<Collector>>(0)?;
         let buffer = cx.argument::<JsTypedArray<f32>>(1)?;
 
@@ -119,46 +117,6 @@ impl Collector {
         let mut collector = this.inner.lock().unwrap();
         collector
             .buffer_interleaved(audio)
-            .or_else(|e| cx.throw_error(e.to_string()))?;
-
-        Ok(cx.undefined())
-    }
-
-    pub fn buffer_sequential(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-        let this = cx.argument::<JsBox<Collector>>(0)?;
-        let buffer = cx.argument::<JsTypedArray<f32>>(1)?;
-
-        let audio = buffer.as_slice(&cx);
-
-        let mut collector = this.inner.lock().unwrap();
-        collector
-            .buffer_sequential(audio)
-            .or_else(|e| cx.throw_error(e.to_string()))?;
-
-        Ok(cx.undefined())
-    }
-
-    pub fn buffer_planar(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-        let this = cx.argument::<JsBox<Collector>>(0)?;
-        let buffers = cx.argument::<JsArray>(1)?;
-
-        let length = buffers.len(&mut cx);
-        if length > 16 {
-            return cx.throw_error("Maximum 16 channels supported for planar buffering");
-        }
-
-        let mut handles: Vec<Handle<JsTypedArray<f32>>> = Vec::with_capacity(length as usize);
-        for i in 0..length {
-            handles.push(buffers.get(&mut cx, i)?);
-        }
-
-        // Buffering reads the channel data, so shared slices are sufficient and there is no
-        // aliasing concern between channels.
-        let slices: Vec<&[f32]> = handles.iter().map(|handle| handle.as_slice(&cx)).collect();
-
-        let mut collector = this.inner.lock().unwrap();
-        collector
-            .buffer_planar(&slices)
             .or_else(|e| cx.throw_error(e.to_string()))?;
 
         Ok(cx.undefined())
@@ -284,9 +242,7 @@ pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()>
     cx.export_function("fileAnalyzerAnalyze", FileAnalyzer::analyze)?;
 
     cx.export_function("collectorInitialize", Collector::initialize)?;
-    cx.export_function("collectorBufferInterleaved", Collector::buffer_interleaved)?;
-    cx.export_function("collectorBufferSequential", Collector::buffer_sequential)?;
-    cx.export_function("collectorBufferPlanar", Collector::buffer_planar)?;
+    cx.export_function("collectorBuffer", Collector::buffer)?;
 
     cx.export_function("analyzerReset", Analyzer::reset)?;
     cx.export_function("analyzerAnalyzeBuffered", Analyzer::analyze_buffered)?;

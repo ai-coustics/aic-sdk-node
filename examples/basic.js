@@ -45,9 +45,9 @@ try {
   process.exit(1);
 }
 
-// Initialize for stereo audio
+// Initialize for mono audio
 try {
-  processor.initialize(sampleRate, 2, numFrames, false);
+  processor.initialize(sampleRate, numFrames, false);
 } catch (error) {
   console.error("Failed to initialize processor:", error.message);
   process.exit(1);
@@ -70,56 +70,23 @@ console.log(
   processorContext.getParameter(ProcessorParameter.EnhancementLevel),
 );
 
-// Process interleaved audio
-const interleavedBuffer = new Float32Array(2 * numFrames);
-for (let i = 0; i < interleavedBuffer.length; i++) {
-  interleavedBuffer[i] = Math.random() * 0.1;
+// Process mono audio
+const audioBuffer = new Float32Array(numFrames);
+for (let i = 0; i < audioBuffer.length; i++) {
+  audioBuffer[i] = Math.random() * 0.1;
 }
+console.log("Before:", audioBuffer.slice(0, 8));
 try {
-  processor.processInterleaved(interleavedBuffer);
-  console.log("Processed interleaved audio");
+  processor.process(audioBuffer);
+  console.log("After: ", audioBuffer.slice(0, 8));
+  console.log("Processed mono audio");
 } catch (error) {
-  console.error("Failed to process interleaved audio:", error.message);
-  process.exit(1);
-}
-
-// Process sequential audio
-const sequentialBuffer = new Float32Array(2 * numFrames);
-for (let i = 0; i < sequentialBuffer.length; i++) {
-  sequentialBuffer[i] = Math.random() * 0.1;
-}
-try {
-  processor.processSequential(sequentialBuffer);
-  console.log("Processed sequential audio");
-} catch (error) {
-  console.error("Failed to process sequential audio:", error.message);
+  console.error("Failed to process audio:", error.message);
   process.exit(1);
 }
 
 // Reset processor state
 processorContext.reset();
-
-// Process planar audio
-const planarBuffers = [
-  new Float32Array(numFrames), // Left channel
-  new Float32Array(numFrames), // Right channel
-];
-for (let i = 0; i < numFrames; i++) {
-  planarBuffers[0][i] = Math.random() * 0.1;
-  planarBuffers[1][i] = Math.random() * 0.1;
-}
-console.log("Planar before L:", planarBuffers[0].slice(0, 8));
-console.log("Planar before R:", planarBuffers[1].slice(0, 8));
-try {
-  processor.processPlanar(planarBuffers);
-  processor.processPlanar(planarBuffers);
-  console.log("Planar after L:", planarBuffers[0].slice(0, 8));
-  console.log("Planar after R:", planarBuffers[1].slice(0, 8));
-  console.log("Processed planar audio");
-} catch (error) {
-  console.error("Failed to process planar audio:", error.message);
-  process.exit(1);
-}
 
 // Use VAD (Voice Activity Detection)
 try {

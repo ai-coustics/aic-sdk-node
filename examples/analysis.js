@@ -63,11 +63,11 @@ try {
   const { collector, analyzer } = analyzerPair(model, licenseKey);
 
   const numFrames = model.getOptimalNumFrames(sampleRate);
-  collector.initialize(sampleRate, 1, numFrames, false);
+  collector.initialize(sampleRate, numFrames, false);
 
   // Buffer five seconds of audio in optimal-size frames.
   for (let offset = 0; offset + numFrames <= sampleRate * 5; offset += numFrames) {
-    collector.bufferInterleaved(audio.subarray(offset, offset + numFrames));
+    collector.buffer(audio.subarray(offset, offset + numFrames));
   }
 
   const result = analyzer.analyzeBuffered();
