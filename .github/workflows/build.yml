@@ -156,16 +156,59 @@ jobs:
       - name: Install latest npm for OIDC support
         run: npm install -g npm@latest
 
-      - name: Download all artifacts
+      # Download each binary by name directly into its platform package.
+      # A named download does a direct lookup (not a list-all), so it fails
+      # loudly if an artifact is missing instead of silently downloading a
+      # partial set — which is how a previous release half-published.
+      - name: Download linux-x64-gnu binary
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: linux-x64-gnu
+          path: npm/linux-x64-gnu
 
-      - name: Copy binaries to platform packages
+      - name: Download linux-arm64-gnu binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64-gnu
+          path: npm/linux-arm64-gnu
+
+      - name: Download darwin-x64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: darwin-x64
+          path: npm/darwin-x64
+
+      - name: Download darwin-arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: darwin-arm64
+          path: npm/darwin-arm64
+
+      - name: Download win32-x64-msvc binary
+        uses: actions/download-artifact@v4
+        with:
+          name: win32-x64-msvc
+          path: npm/win32-x64-msvc
+
+      - name: Download win32-arm64-msvc binary
+        uses: actions/download-artifact@v4
+        with:
+          name: win32-arm64-msvc
+          path: npm/win32-arm64-msvc
+
+      - name: Verify all platform binaries are present
         run: |
+          missing=0
           for platform in linux-x64-gnu linux-arm64-gnu darwin-x64 darwin-arm64 win32-x64-msvc win32-arm64-msvc; do
-            cp artifacts/$platform/index.node npm/$platform/
+            if [[ ! -f "npm/$platform/index.node" ]]; then
+              echo "Error: npm/$platform/index.node is missing"
+              missing=1
+            fi
           done
+          if [[ "$missing" -ne 0 ]]; then
+            echo "One or more platform binaries are missing; aborting before publish."
+            exit 1
+          fi
 
       - name: Publish platform packages
         run: |
