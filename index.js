@@ -78,15 +78,15 @@ const VadParameter = {
    * This affects the stability of speech detected -> not detected transitions.
    *
    * The VAD reports speech detected if the audio signal contained speech in at least 50%
-   * of the frames processed in the last `speech_hold_duration * 2` seconds.
+   * of the blocks processed in the last `speech_hold_duration * 2` seconds.
    *
    * For example, if `speech_hold_duration` is set to 0.5 seconds and the VAD stops detecting speech
    * in the audio signal, the VAD will continue to report speech for 0.5 seconds assuming the
-   * VAD does not detect speech again during that period. If a few frames of speech are detected
-   * during that period, those frames will be included in the 50% calculation, which will extend
+   * VAD does not detect speech again during that period. If a few blocks of speech are detected
+   * during that period, those blocks will be included in the 50% calculation, which will extend
    * the speech detection period until the 50% threshold is no longer met.
    *
-   * NOTE: The VAD returns a value per processed buffer, so this duration is rounded
+   * NOTE: The VAD returns a value per processed audio block, so this duration is rounded
    * to the closest model window length. For example, if the model has a processing window
    * length of 10 ms, the VAD will round up/down to the closest multiple of 10 ms.
    * Because of this, this parameter may return a different value than the one it was last set to.
@@ -100,12 +100,11 @@ const VadParameter = {
   /**
    * Controls the sensitivity of the VAD.
    *
-   * The interpretation depends on the model:
-   *   - Energy-based VADs: threshold a speech signal's energy must exceed to be
-   *     considered speech. Range 1.0 to 15.0, formula: energy threshold = 10 ^ (-sensitivity).
-   *   - Dedicated VAD models (e.g. Quail VAD): the speech probability threshold,
-   *     in the range 0.0 to 1.0.
+   * VAD models output a probability of speech presence for each processed audio block,
+   * where 1.0 means the model is certain speech is present and 0.0 means it is certain
+   * speech is not present. A value above this threshold triggers a speech decision.
    *
+   * Range: 0.0 to 1.0
    * Default: model-specific.
    */
   Sensitivity: native.VAD_PARAM_SENSITIVITY,
@@ -116,7 +115,7 @@ const VadParameter = {
    *
    * This affects the stability of speech not detected -> detected transitions.
    *
-   * Note: The VAD returns a value per processed buffer, so this duration is rounded
+   * NOTE: The VAD returns a value per processed audio block, so this duration is rounded
    * to the closest model window length.
    *
    * Range: 0.0 to 1.0 (value in seconds)
@@ -127,7 +126,7 @@ const VadParameter = {
 
 /**
  * Context for managing processor state and parameters.
- * Created via Processor.getProcessorContext().
+ * Created via {@link Processor#getContext}.
  */
 class ProcessorContext {
   constructor(nativeContext) {
@@ -135,12 +134,13 @@ class ProcessorContext {
   }
 
   /**
-   * Clears all internal state and buffers.
+   * Clears all internal processing state, including any internally stored audio samples.
    *
    * Call this when the audio stream is interrupted or when seeking
    * to prevent artifacts from previous audio content.
    *
-   * The processor stays initialized to the configured settings.
+   * The processor stays initialized to the configured settings. VAD state is separate and
+   * must be reset through {@link VadContext#reset}.
    *
    * Thread Safety: Real-time safe. Can be called from audio processing threads.
    */
@@ -184,22 +184,22 @@ class ProcessorContext {
    * Returns the total output delay in samples for the current audio configuration.
    *
    * This function provides the complete end-to-end latency introduced by the model,
-   * which includes both algorithmic processing delay and any buffering overhead.
+   * which includes both algorithmic processing delay and any internal block-adaptation delay.
    * Use this value to synchronize enhanced audio with other streams or to implement
    * delay compensation in your application.
    *
    * Delay behavior:
    *   - Before initialization: Returns the base processing delay using the model's
-   *     optimal frame size at its native sample rate
+   *     optimal block size at its native sample rate
    *   - After initialization: Returns the actual delay for your specific configuration,
-   *     including any additional buffering introduced by non-optimal frame sizes
+   *     including any additional block-adaptation delay from a non-optimal block size
    *
    * Important: The delay value is always expressed in samples at the sample rate
    * you configured during initialize(). To convert to time units:
    * delay_ms = (delay_samples * 1000) / sample_rate
    *
-   * Note: Using frame sizes different from the optimal value returned by
-   * Model.getOptimalNumFrames() will increase the delay beyond the model's base latency.
+   * Note: Using a block size different from the optimal value returned by
+   * Model.getOptimalBlockSize() will increase the delay beyond the model's base latency.
    *
    * @returns {number} The delay in samples.
    *
@@ -233,26 +233,10 @@ class ProcessorContext {
 }
 
 /**
- * Voice Activity Detector backed by an ai-coustics speech enhancement model.
+ * Thread-safe control handle for a {@link Vad}.
  *
- * The VAD works automatically using the enhanced audio output of the model
- * that created the VAD.
- *
- * Important:
- *   - The latency of the VAD prediction is equal to the backing model's processing
- *     latency, reported by ProcessorContext.getOutputDelay(). The prediction lags its
- *     input by that many samples, so align speech decisions to the input timeline using
- *     that delay.
- *   - If the backing model stops being processed, the VAD will not update its speech detection prediction.
- *
- * Created via Processor.getVadContext().
- *
- * @example
- * const vad = processor.getVadContext();
- * vad.setParameter(VadParameter.Sensitivity, 5.0);
- * if (vad.isSpeechDetected()) {
- *   console.log("Speech detected!");
- * }
+ * Created via {@link Vad#getContext}. All contexts created from one VAD reference the same
+ * detector instance.
  */
 class VadContext {
   constructor(nativeContext) {
@@ -260,58 +244,50 @@ class VadContext {
   }
 
   /**
-   * Returns the VAD's prediction.
+   * Clears all internal detection state, including internally stored audio samples, the
+   * published speech decision, and the raw probability. The VAD stays initialized.
    *
-   * Important:
-   *   - The latency of the VAD prediction is equal to the backing model's processing
-   *     latency, reported by ProcessorContext.getOutputDelay(). The prediction lags its
-   *     input by that many samples, so align speech decisions to the input timeline using
-   *     that delay.
-   *   - If the backing model stops being processed, the VAD will not update its speech detection prediction.
+   * Call this when the audio stream is interrupted or when seeking.
    *
-   * @returns {boolean} True if speech is detected, False otherwise.
+   * @throws {Error} If the reset fails.
+   */
+  reset() {
+    native.vadContextReset(this._context);
+  }
+
+  /**
+   * Returns the VAD's current prediction.
+   *
+   * The prediction lags its input by the number of samples returned by
+   * {@link VadContext#getOutputDelay}. If the backing VAD stops being processed, the
+   * prediction does not update.
+   *
+   * @returns {boolean} True if speech is detected, false otherwise.
    */
   isSpeechDetected() {
     return native.vadContextIsSpeechDetected(this._context);
   }
 
   /**
-   * Returns the raw prediction of the VAD, without any processing.
+   * Returns the VAD model's raw speech probability without SDK post-processing such as
+   * sensitivity thresholding or speech hold duration.
    *
-   * In contrast to the output of {@link isSpeechDetected}, the output of this function
-   * is the model's direct prediction without going through the SDK's VAD
-   * post-processing (i.e. speech hold duration, sensitivity thresholding, etc.).
-   *
-   * This value may be used to build other abstractions on top of this data.
-   *
-   * Note:
-   *   This value is only useful when using a VAD model. When using an energy-based VAD,
-   *   the raw prediction is set to 1.0 or 0.0 depending on whether isSpeechDetected()
-   *   is true or false.
-   *
-   * Important:
-   *   - The latency of the VAD prediction is equal to the backing model's processing
-   *     latency, reported by ProcessorContext.getOutputDelay(). The prediction lags its
-   *     input by that many samples, so align speech decisions to the input timeline using
-   *     that delay.
-   *   - If the backing model stops being processed, the VAD will not update its prediction.
-   *
-   * @returns {number} The raw VAD probability.
+   * @returns {number} The raw VAD probability in the range 0.0 to 1.0.
    */
   rawVadProbability() {
     return native.vadContextRawVadProbability(this._context);
   }
 
   /**
-   * Modifies a VAD parameter.
+   * Modifies a VAD parameter. Parameters can be changed while audio is processed.
    *
    * @param {VadParameter} parameter - Parameter to modify
    * @param {number} value - New parameter value. See parameter documentation for ranges
    * @throws {Error} If the parameter value is out of range.
    *
    * @example
-   * vad.setParameter(VadParameter.SpeechHoldDuration, 0.08);
-   * vad.setParameter(VadParameter.Sensitivity, 5.0);
+   * vadContext.setParameter(VadParameter.SpeechHoldDuration, 0.08);
+   * vadContext.setParameter(VadParameter.Sensitivity, 0.5);
    */
   setParameter(parameter, value) {
     native.vadContextSetParameter(this._context, parameter, value);
@@ -322,13 +298,31 @@ class VadContext {
    *
    * @param {VadParameter} parameter - Parameter to query
    * @returns {number} The current parameter value.
-   *
-   * @example
-   * const sensitivity = vad.getParameter(VadParameter.Sensitivity);
-   * console.log(`Current sensitivity: ${sensitivity}`);
    */
   getParameter(parameter) {
     return native.vadContextGetParameter(this._context, parameter);
+  }
+
+  /**
+   * Returns the end-to-end VAD prediction delay in samples.
+   *
+   * After initialization, this includes input reblocking and model processing latency at
+   * the configured sample rate. Use it to align VAD decisions with the input timeline.
+   *
+   * @returns {number} The prediction delay in samples.
+   */
+  getOutputDelay() {
+    return native.vadContextGetOutputDelay(this._context);
+  }
+
+  /**
+   * Swaps in a renewed JWT bearer token while VAD processing continues uninterrupted.
+   *
+   * @param {string} token - The renewed JWT bearer token.
+   * @throws {Error} If token update is unsupported for the configured license.
+   */
+  updateBearerToken(token) {
+    native.vadContextUpdateBearerToken(this._context, token);
   }
 }
 
@@ -357,10 +351,10 @@ class VadContext {
  */
 
 /**
- * Buffers audio for later analysis by an {@link Analyzer}.
+ * Collects audio blocks for later analysis by an {@link Analyzer}.
  *
- * The collector is designed to be fed mono audio chunks (for example on an audio thread) that
- * the Analyzer analyzes later.
+ * Pass one mono audio block at a time to the collector (for example on an audio thread). The
+ * Analyzer analyzes the collected audio later.
  *
  * Created via {@link analyzerPair}.
  */
@@ -372,30 +366,31 @@ class Collector {
   /**
    * Configures the collector for specific audio settings.
    *
-   * This must be called before buffering any audio. For the lowest delay use the sample rate
-   * and frame size returned by Model.getOptimalSampleRate() and Model.getOptimalNumFrames().
+   * This must be called before passing audio blocks to the collector. To avoid internal
+   * resampling and block adaptation, use the sample rate and block size returned by
+   * Model.getOptimalSampleRate() and Model.getOptimalBlockSize().
    *
    * Warning: Do not call from audio processing threads as this allocates memory.
    *
    * @param {number} sampleRate - Sample rate in Hz
-   * @param {number} numFrames - Samples provided to each buffering call
-   * @param {boolean} [allowVariableFrames=false] - Allow variable frame sizes (adds latency)
+   * @param {number} blockSize - Maximum samples in each audio block passed to buffer()
+   * @param {boolean} [variableBlockSize=false] - Allow variable block sizes (adds latency)
    * @throws {Error} If the audio configuration is unsupported.
    */
-  initialize(sampleRate, numFrames, allowVariableFrames = false) {
+  initialize(sampleRate, blockSize, variableBlockSize = false) {
     native.collectorInitialize(
       this._collector,
       sampleRate,
-      numFrames,
-      allowVariableFrames,
+      blockSize,
+      variableBlockSize,
     );
   }
 
   /**
-   * Buffers mono audio.
+   * Adds one mono audio block to the collector.
    *
-   * @param {Float32Array} samples - Mono audio buffer of size numFrames
-   * @throws {Error} If buffering fails (collector not initialized, invalid buffer size, etc.)
+   * @param {Float32Array} samples - Mono audio block of size blockSize
+   * @throws {Error} If collection fails (collector not initialized, invalid block size, etc.)
    */
   buffer(samples) {
     native.collectorBuffer(this._collector, samples);
@@ -403,7 +398,7 @@ class Collector {
 }
 
 /**
- * Runs an analysis model over the audio buffered by a {@link Collector}.
+ * Runs an analysis model over the audio collected by a {@link Collector}.
  *
  * Analysis models are computationally expensive and should be run off the audio thread.
  *
@@ -415,7 +410,7 @@ class Analyzer {
   }
 
   /**
-   * Clears all internal state and buffers of both the analyzer and its collector.
+   * Clears the analyzer state and all audio collected by its collector.
    *
    * Call this when the audio stream is interrupted or when seeking to prevent mispredictions
    * from previous audio content. The collector stays initialized to the configured settings.
@@ -429,10 +424,10 @@ class Analyzer {
   }
 
   /**
-   * Analyzes the buffered signal.
+   * Analyzes the collected signal.
    *
    * Runs a forward pass of the analysis model over a fixed length of audio, determined by the
-   * model. If called before the collector has buffered that length of audio, the tail of the
+   * model. If called before the collector has collected that length of audio, the tail of the
    * input is analyzed as silence (zeros).
    *
    * Note: This function is not real-time safe. Avoid calling it from audio threads.
@@ -442,6 +437,18 @@ class Analyzer {
    */
   analyzeBuffered() {
     return native.analyzerAnalyzeBuffered(this._analyzer);
+  }
+
+  /**
+   * Terminates this analyzer's telemetry session before the analyzer is destroyed.
+   *
+   * After this call, the analyzer can no longer analyze collected audio. This operation may
+   * block and should not be called from an audio thread.
+   *
+   * @throws {Error} If session termination cannot be requested.
+   */
+  terminateSession() {
+    native.analyzerTerminateSession(this._analyzer);
   }
 
   /**
@@ -462,12 +469,12 @@ class Analyzer {
 /**
  * Creates a collector/analyzer pair for non-real-time analysis.
  *
- * The {@link Collector} buffers audio chunks (for example on an audio thread) and the
- * {@link Analyzer} analyzes the buffered audio later, off the audio thread. The collector
+ * Pass audio blocks to the {@link Collector} (for example on an audio thread), then use the
+ * {@link Analyzer} to analyze the collected audio later, off the audio thread. The collector
  * retains a span of audio determined by the analysis model; as more samples are collected,
  * old audio is discarded.
  *
- * For analyzing complete mono buffers already in memory, prefer {@link FileAnalyzer}.
+ * For analyzing a complete mono signal already in memory, prefer {@link FileAnalyzer}.
  *
  * @param {Model} model - The loaded model instance
  * @param {string} licenseKey - License key for the ai-coustics SDK
@@ -478,8 +485,8 @@ class Analyzer {
  * @example
  * const { collector, analyzer } = analyzerPair(model, licenseKey);
  * const sampleRate = model.getOptimalSampleRate();
- * const numFrames = model.getOptimalNumFrames(sampleRate);
- * collector.initialize(sampleRate, 1, numFrames, false);
+ * const blockSize = model.getOptimalBlockSize(sampleRate);
+ * collector.initialize(sampleRate, blockSize, false);
  */
 function analyzerPair(model, licenseKey) {
   const pair = native.analyzerPair(model._model, licenseKey);
@@ -490,13 +497,13 @@ function analyzerPair(model, licenseKey) {
 }
 
 /**
- * Analyzes complete mono audio buffers.
+ * Analyzes complete mono audio signals.
  *
  * FileAnalyzer is a convenience wrapper around a {@link Collector} and {@link Analyzer} pair
  * for non-real-time analysis of audio that is already loaded in memory. The windowing,
  * zero-padding and reset logic is performed by the underlying SDK.
  *
- * Each call to analyze() configures the analyzer for mono input with the model's optimal frame
+ * Each call to analyze() configures the analyzer for mono input with the model's optimal block
  * size. It analyzes independent five-second windows, advancing the start of each window by
  * stepSamples.
  *
@@ -525,7 +532,7 @@ class FileAnalyzer {
   }
 
   /**
-   * Analyzes a complete mono audio buffer.
+   * Analyzes a complete mono audio signal held in memory.
    *
    * The input must contain mono f32 samples at sampleRate. No channel mixing or resampling is
    * performed.
@@ -569,17 +576,17 @@ class FileAnalyzer {
 }
 
 /**
- * OpenTelemetry configuration for a processor.
+ * OpenTelemetry configuration for a {@link Processor} or {@link Vad}.
  *
- * Pass an instance as the third argument to Processor to override
- * AIC_SDK_OTEL_ENABLE for that processor only.
+ * Pass an instance as the third constructor argument to override AIC_SDK_OTEL_ENABLE for
+ * that processor or VAD only.
  */
 class OtelConfig {
   /**
-   * Creates an OpenTelemetry configuration for a processor.
+   * Creates an OpenTelemetry configuration for a processor or VAD.
    *
-   * Pass an instance as the third argument to Processor to override
-   * AIC_SDK_OTEL_ENABLE for that processor only.
+   * Pass an instance as the third constructor argument to override AIC_SDK_OTEL_ENABLE for
+   * that processor or VAD only.
    *
    * @param {boolean} enable - Whether OpenTelemetry telemetry is enabled
    * @param {string|null} [sessionId=null] - Optional telemetry session ID
@@ -622,7 +629,7 @@ class OtelConfig {
 }
 
 /**
- * High-level wrapper for the ai-coustics audio enhancement model.
+ * High-level wrapper for an ai-coustics model.
  *
  * This class provides a safe, JavaScript-friendly interface to the underlying native library.
  * It handles memory management automatically.
@@ -630,7 +637,8 @@ class OtelConfig {
  * @example
  * const model = Model.fromFile("/path/to/model.aicmodel");
  * const processor = new Processor(model, licenseKey);
- * processor.initialize(model.getOptimalSampleRate(), 2, model.getOptimalNumFrames(sampleRate), false);
+ * const sampleRate = model.getOptimalSampleRate();
+ * processor.initialize(sampleRate, model.getOptimalBlockSize(sampleRate), false);
  */
 class Model {
   constructor(nativeModel) {
@@ -638,10 +646,10 @@ class Model {
   }
 
   /**
-   * Creates a new audio enhancement model instance from a file.
+   * Creates a new model instance from a file.
    *
-   * Multiple models can be created to process different audio streams simultaneously
-   * or to switch between different enhancement algorithms during runtime.
+   * A model can be used to create multiple processors, VADs, or analyzers according to
+   * its model type.
    *
    * @param {string} path - Path to the model file (.aicmodel). You can download models manually
    *   from https://artifacts.ai-coustics.io or use Model.download() to fetch them programmatically.
@@ -695,18 +703,9 @@ class Model {
   /**
    * Retrieves the native sample rate of the model.
    *
-   * Each model is optimized for a specific sample rate, which determines the frequency
-   * range of the enhanced audio output. While you can process audio at any sample rate,
-   * understanding the model's native rate helps predict the enhancement quality.
-   *
-   * How sample rate affects enhancement:
-   *   - Models trained at lower sample rates (e.g., 8 kHz) can only enhance frequencies
-   *     up to their Nyquist limit (4 kHz for 8 kHz models)
-   *   - When processing higher sample rate input (e.g., 48 kHz) with a lower-rate model,
-   *     only the lower frequency components will be enhanced
-   *
-   * Recommendation: For maximum enhancement quality across the full frequency spectrum,
-   * match your input sample rate to the model's native rate when possible.
+   * Each model is optimized for a specific sample rate. Using that rate avoids internal
+   * resampling and provides the model's intended frequency range and behavior. Other supported
+   * sample rates can still be configured when needed.
    *
    * @returns {number} The model's native sample rate in Hz.
    *
@@ -719,67 +718,50 @@ class Model {
   }
 
   /**
-   * Retrieves the optimal number of frames for the model at a given sample rate.
+   * Retrieves the optimal block size for the model at a given sample rate.
    *
-   * Using the optimal number of frames minimizes latency by avoiding internal buffering.
+   * Using the optimal block size minimizes latency by avoiding internal block adaptation. The
+   * optimal size varies with sample rate because each model operates on a fixed time window.
    *
-   * When you use a different frame count than the optimal value, the model will
-   * introduce additional buffering latency on top of its base processing delay.
+   * Call this before initializing a Processor, Vad, or Collector to determine the best
+   * block size for minimal latency.
    *
-   * The optimal frame count varies based on the sample rate. Each model operates on a
-   * fixed time window duration, so the required number of frames changes with sample rate.
-   * For example, a model designed for 10 ms processing windows requires 480 frames at
-   * 48 kHz, but only 160 frames at 16 kHz to capture the same duration of audio.
-   *
-   * Call this function with your intended sample rate before calling
-   * Processor.initialize() to determine the best frame count for minimal latency.
-   *
-   * @param {number} sampleRate - The sample rate in Hz for which to calculate the optimal frame count
-   * @returns {number} The optimal frame count for the given sample rate.
+   * @param {number} sampleRate - Sample rate in Hz
+   * @returns {number} The optimal block size in samples.
    *
    * @example
    * const sampleRate = model.getOptimalSampleRate();
-   * const optimalFrames = model.getOptimalNumFrames(sampleRate);
-   * console.log(`Optimal frame count: ${optimalFrames}`);
+   * const blockSize = model.getOptimalBlockSize(sampleRate);
    */
-  getOptimalNumFrames(sampleRate) {
-    return native.modelGetOptimalNumFrames(this._model, sampleRate);
+  getOptimalBlockSize(sampleRate) {
+    return native.modelGetOptimalBlockSize(this._model, sampleRate);
   }
 }
 
 /**
- * High-level wrapper for the ai-coustics audio enhancement processor.
+ * High-level wrapper for ai-coustics audio enhancement.
  *
- * This class provides a safe, JavaScript-friendly interface to the underlying native library.
- * It handles memory management automatically.
+ * A Processor accepts enhancement and bypass models. Use {@link Vad} with a dedicated VAD
+ * model for voice activity detection.
  *
  * @example
  * const model = Model.fromFile("/path/to/model.aicmodel");
  * const processor = new Processor(model, licenseKey);
  * const sampleRate = model.getOptimalSampleRate();
- * const numFrames = model.getOptimalNumFrames(sampleRate);
- * processor.initialize(sampleRate, numFrames, false);
- * const audio = new Float32Array(numFrames);
+ * const blockSize = model.getOptimalBlockSize(sampleRate);
+ * processor.initialize(sampleRate, blockSize, false);
+ * const audio = new Float32Array(blockSize);
  * processor.process(audio);
  */
 class Processor {
   /**
-   * Creates a new audio enhancement processor instance.
+   * Creates an audio enhancement processor from an enhancement or bypass model.
    *
-   * Multiple processors can be created to process different audio streams simultaneously
-   * or to switch between different enhancement algorithms during runtime.
-   *
-   * @param {Model} model - The loaded model instance
+   * @param {Model} model - Enhancement or bypass model
    * @param {string} licenseKey - License key for the ai-coustics SDK
    *   (generate your key at https://developers.ai-coustics.com/)
    * @param {OtelConfig|null} [otelConfig=null] - Optional per-processor OpenTelemetry config.
-   *   When omitted, telemetry follows the SDK environment configuration.
-   * @throws {Error} If processor creation fails.
-   *
-   * @example
-   * const model = Model.fromFile("/path/to/model.aicmodel");
-   * const processor = new Processor(model, licenseKey, OtelConfig.withSessionId("session-1"));
-   * processor.initialize(sampleRate, numFrames, false);
+   * @throws {Error} If creation fails or the model type is unsupported.
    */
   constructor(model, licenseKey, otelConfig = null) {
     this._processor = native.processorNew(model._model, licenseKey, otelConfig);
@@ -788,77 +770,132 @@ class Processor {
   /**
    * Configures the processor for specific audio settings.
    *
-   * This function must be called before processing any audio.
-   * For the lowest delay use the sample rate and frame size returned by
-   * Model.getOptimalSampleRate() and Model.getOptimalNumFrames().
-   *
-   * Warning: Do not call from audio processing threads as this allocates memory.
+   * For the lowest delay, use the model's optimal sample rate and block size.
+   * Do not call this from an audio processing thread because it allocates memory.
    *
    * @param {number} sampleRate - Sample rate in Hz (8000 - 192000)
-   * @param {number} numFrames - Samples provided to each processing call
-   * @param {boolean} [allowVariableFrames=false] - Allow variable frame sizes (adds latency)
+   * @param {number} blockSize - Samples provided to each processing call
+   * @param {boolean} [variableBlockSize=false] - Allow variable block sizes (adds latency)
    * @throws {Error} If the audio configuration is unsupported.
-   *
-   * @example
-   * const sampleRate = model.getOptimalSampleRate();
-   * const numFrames = model.getOptimalNumFrames(sampleRate);
-   * processor.initialize(sampleRate, numFrames, false);
    */
-  initialize(sampleRate, numFrames, allowVariableFrames = false) {
+  initialize(sampleRate, blockSize, variableBlockSize = false) {
     native.processorInitialize(
       this._processor,
       sampleRate,
-      numFrames,
-      allowVariableFrames,
+      blockSize,
+      variableBlockSize,
     );
   }
 
   /**
-   * Processes mono audio.
+   * Enhances a mono audio block in-place.
    *
-   * Enhances speech in the provided audio buffer. The buffer is modified in-place.
-   *
-   * @param {Float32Array} samples - Mono audio buffer of size numFrames
-   * @throws {Error} If processing fails (processor not initialized, invalid buffer size, etc.)
-   *
-   * @example
-   * const samples = new Float32Array(numFrames);
-   * processor.process(samples);
+   * @param {Float32Array} samples - Mono audio block of size blockSize
+   * @throws {Error} If processing fails.
    */
   process(samples) {
     native.processorProcess(this._processor, samples);
   }
 
   /**
-   * Creates a ProcessorContext instance.
+   * Creates a context for controlling processor parameters and state.
    *
-   * This can be used to control all parameters and other settings of the processor.
-   *
-   * @returns {ProcessorContext} A new ProcessorContext instance.
-   *
-   * @example
-   * const processorContext = processor.getProcessorContext();
-   * processorContext.setParameter(ProcessorParameter.EnhancementLevel, 0.8);
+   * @returns {ProcessorContext} A new context for this processor.
    */
-  getProcessorContext() {
-    const nativeContext = native.processorGetProcessorContext(this._processor);
-    return new ProcessorContext(nativeContext);
+  getContext() {
+    return new ProcessorContext(native.processorGetContext(this._processor));
   }
 
   /**
-   * Creates a Voice Activity Detector Context instance.
+   * Terminates this processor's telemetry session before the processor is destroyed.
    *
-   * @returns {VadContext} A new VadContext instance.
+   * After this call, the processor can no longer process audio. This operation may block
+   * and should not be called from an audio thread.
    *
-   * @example
-   * const vad = processor.getVadContext();
-   * if (vad.isSpeechDetected()) {
-   *   console.log("Speech detected!");
-   * }
+   * @throws {Error} If session termination cannot be requested.
    */
-  getVadContext() {
-    const nativeContext = native.processorGetVadContext(this._processor);
-    return new VadContext(nativeContext);
+  terminateSession() {
+    native.processorTerminateSession(this._processor);
+  }
+}
+
+/**
+ * High-level wrapper for ai-coustics voice activity detection.
+ *
+ * A Vad is created from a dedicated VAD model such as `vad-2.1-xxs-16khz`.
+ * Enhancement models are not supported; use {@link Processor} for those.
+ *
+ * @example
+ * const model = Model.fromFile("/path/to/vad-model.aicmodel");
+ * const vad = new Vad(model, licenseKey);
+ * const sampleRate = model.getOptimalSampleRate();
+ * const blockSize = model.getOptimalBlockSize(sampleRate);
+ * vad.initialize(sampleRate, blockSize);
+ * const vadContext = vad.getContext();
+ * vad.process(new Float32Array(blockSize));
+ * console.log(vadContext.isSpeechDetected());
+ */
+class Vad {
+  /**
+   * Creates a voice activity detector from a dedicated VAD model.
+   *
+   * @param {Model} model - Dedicated VAD model
+   * @param {string} licenseKey - License key for the ai-coustics SDK
+   * @param {OtelConfig|null} [otelConfig=null] - Optional per-VAD OpenTelemetry config.
+   * @throws {Error} If creation fails or the model type is unsupported.
+   */
+  constructor(model, licenseKey, otelConfig = null) {
+    this._vad = native.vadNew(model._model, licenseKey, otelConfig);
+  }
+
+  /**
+   * Configures the VAD for specific audio settings.
+   *
+   * @param {number} sampleRate - Sample rate in Hz (8000 - 192000)
+   * @param {number} blockSize - Samples provided to each processing call
+   * @param {boolean} [variableBlockSize=false] - Allow variable block sizes (adds latency)
+   * @throws {Error} If the audio configuration is unsupported.
+   */
+  initialize(sampleRate, blockSize, variableBlockSize = false) {
+    native.vadInitialize(
+      this._vad,
+      sampleRate,
+      blockSize,
+      variableBlockSize,
+    );
+  }
+
+  /**
+   * Processes mono audio and updates the VAD prediction.
+   *
+   * The audio is input-only and is not enhanced or otherwise modified.
+   *
+   * @param {Float32Array} samples - Mono audio block of size blockSize
+   * @throws {Error} If processing fails.
+   */
+  process(samples) {
+    native.vadProcess(this._vad, samples);
+  }
+
+  /**
+   * Creates a context for reading the prediction and controlling VAD state.
+   *
+   * @returns {VadContext} A new context for this VAD.
+   */
+  getContext() {
+    return new VadContext(native.vadGetContext(this._vad));
+  }
+
+  /**
+   * Terminates this VAD's telemetry session before the VAD is destroyed.
+   *
+   * After this call, the VAD can no longer process audio. This operation may block and
+   * should not be called from an audio thread.
+   *
+   * @throws {Error} If session termination cannot be requested.
+   */
+  terminateSession() {
+    native.vadTerminateSession(this._vad);
   }
 }
 
@@ -891,6 +928,7 @@ module.exports = {
   OtelConfig,
   Processor,
   ProcessorContext,
+  Vad,
   VadContext,
   Collector,
   Analyzer,

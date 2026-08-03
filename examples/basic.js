@@ -2,7 +2,6 @@ const {
   Model,
   Processor,
   ProcessorParameter,
-  VadParameter,
   getVersion,
   getCompatibleModelVersion,
 } = require("..");
@@ -31,10 +30,10 @@ try {
 
 // Get optimal settings
 const sampleRate = model.getOptimalSampleRate();
-const numFrames = model.getOptimalNumFrames(sampleRate);
+const blockSize = model.getOptimalBlockSize(sampleRate);
 
 console.log("Sample Rate:", sampleRate);
-console.log("Num Frames:", numFrames);
+console.log("Block Size:", blockSize);
 
 // Create processor
 let processor;
@@ -47,14 +46,14 @@ try {
 
 // Initialize for mono audio
 try {
-  processor.initialize(sampleRate, numFrames, false);
+  processor.initialize(sampleRate, blockSize, false);
 } catch (error) {
   console.error("Failed to initialize processor:", error.message);
   process.exit(1);
 }
 
 // Get processor context for parameter control
-const processorContext = processor.getProcessorContext();
+const processorContext = processor.getContext();
 console.log("Output Delay:", processorContext.getOutputDelay(), "samples");
 
 // Set enhancement parameters
@@ -71,14 +70,14 @@ console.log(
 );
 
 // Process mono audio
-const audioBuffer = new Float32Array(numFrames);
-for (let i = 0; i < audioBuffer.length; i++) {
-  audioBuffer[i] = Math.random() * 0.1;
+const audioBlock = new Float32Array(blockSize);
+for (let i = 0; i < audioBlock.length; i++) {
+  audioBlock[i] = Math.random() * 0.1;
 }
-console.log("Before:", audioBuffer.slice(0, 8));
+console.log("Before:", audioBlock.slice(0, 8));
 try {
-  processor.process(audioBuffer);
-  console.log("After: ", audioBuffer.slice(0, 8));
+  processor.process(audioBlock);
+  console.log("After: ", audioBlock.slice(0, 8));
   console.log("Processed mono audio");
 } catch (error) {
   console.error("Failed to process audio:", error.message);
@@ -87,28 +86,5 @@ try {
 
 // Reset processor state
 processorContext.reset();
-
-// Use VAD (Voice Activity Detection)
-try {
-  const vad = processor.getVadContext();
-  vad.setParameter(VadParameter.SpeechHoldDuration, 0.1);
-  vad.setParameter(VadParameter.Sensitivity, 7.0);
-  vad.setParameter(VadParameter.MinimumSpeechDuration, 0.5);
-
-  console.log(
-    "VAD Speech Hold Duration:",
-    vad.getParameter(VadParameter.SpeechHoldDuration),
-  );
-  console.log("VAD Sensitivity:", vad.getParameter(VadParameter.Sensitivity));
-  console.log(
-    "VAD Minimum Speech Duration:",
-    vad.getParameter(VadParameter.MinimumSpeechDuration),
-  );
-  console.log("Speech Detected:", vad.isSpeechDetected());
-  console.log("Raw VAD Probability:", vad.rawVadProbability());
-} catch (error) {
-  console.error("Failed to use VAD:", error.message);
-  process.exit(1);
-}
 
 console.log("\nExample completed successfully");

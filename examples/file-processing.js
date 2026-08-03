@@ -66,8 +66,8 @@ let samples;
 let sampleRate;
 
 try {
-  const buffer = fs.readFileSync(inputFile);
-  const wav = new WaveFile(buffer);
+  const fileBytes = fs.readFileSync(inputFile);
+  const wav = new WaveFile(fileBytes);
   sampleRate = wav.fmt.sampleRate;
   const numChannels = wav.fmt.numChannels;
 
@@ -110,30 +110,28 @@ try {
   process.exit(1);
 }
 
-// Get optimal num frames for the file's sample rate
-const numFrames = model.getOptimalNumFrames(sampleRate);
+// Get the optimal block size for the file's sample rate
+const blockSize = model.getOptimalBlockSize(sampleRate);
 
 console.log("Sample Rate:", sampleRate);
-console.log("Chunk Size:", numFrames, "samples");
+console.log("Block Size:", blockSize, "samples");
 
 // Create processor
 let processor;
 try {
   processor = new Processor(model, process.env.AIC_SDK_LICENSE);
-  processor.initialize(sampleRate, numFrames, false);
+  processor.initialize(sampleRate, blockSize, false);
 } catch (error) {
   console.error("Failed to create processor:", error.message);
   process.exit(1);
 }
 
 // Get processor context and output delay
-const processorContext = processor.getProcessorContext();
+const processorContext = processor.getContext();
 const outputDelay = processorContext.getOutputDelay();
 console.log("Output Delay:", outputDelay, "samples");
 
-// Get VAD context for speech detection
-const vadContext = processor.getVadContext();
-console.log("VAD initialized");
+
 
 // Set enhancement parameters
 try {
@@ -148,55 +146,51 @@ try {
 
 // Calculate padding and total samples
 const paddedLength = samples.length + outputDelay;
-const totalChunks = Math.ceil(paddedLength / numFrames);
-const totalPaddedSamples = totalChunks * numFrames;
+const totalBlocks = Math.ceil(paddedLength / blockSize);
+const totalPaddedSamples = totalBlocks * blockSize;
 
 console.log("Original samples:", samples.length);
 console.log("Padded samples:", totalPaddedSamples);
-console.log("Total chunks to process:", totalChunks);
+console.log("Total blocks to process:", totalBlocks);
 
-// Create padded input buffer
+// Create the padded input signal
 const paddedInput = new Float32Array(totalPaddedSamples);
 
-// Copy original audio to padded buffer
+// Copy the original audio into the padded signal
 paddedInput.set(samples);
 // Remaining samples are already zero (padding at the end to flush output delay)
 
-// Create output buffer
-const outputBuffer = new Float32Array(totalPaddedSamples);
+// Allocate storage for the processed output
+const processedOutput = new Float32Array(totalPaddedSamples);
 
-// Process in chunks
+// Process one audio block at a time
 console.log("Processing...");
-const chunkBuffer = new Float32Array(numFrames);
+const audioBlock = new Float32Array(blockSize);
 
-for (let chunk = 0; chunk < totalChunks; chunk++) {
-  const offset = chunk * numFrames;
+for (let blockIndex = 0; blockIndex < totalBlocks; blockIndex++) {
+  const offset = blockIndex * blockSize;
 
-  // Copy chunk from padded input
-  chunkBuffer.set(paddedInput.subarray(offset, offset + numFrames));
+  // Copy the next block from the padded input
+  audioBlock.set(paddedInput.subarray(offset, offset + blockSize));
 
-  // Process chunk (in-place)
+  // Process the audio block in-place
   try {
-    processor.process(chunkBuffer);
+    processor.process(audioBlock);
   } catch (error) {
-    console.error(`Failed to process chunk ${chunk}:`, error.message);
+    console.error(`Failed to process block ${blockIndex}:`, error.message);
     process.exit(1);
   }
 
-  // Check speech detection after processing
-  const speechDetected = vadContext.isSpeechDetected();
-  const timeInSeconds = (chunk * numFrames) / sampleRate;
-  console.log(
-    `Chunk ${chunk + 1}/${totalChunks} [${timeInSeconds.toFixed(2)}s]: Speech detected: ${speechDetected}`,
-  );
-
-  // Copy processed chunk to output
-  outputBuffer.set(chunkBuffer, offset);
+  // Copy the processed block to the output signal
+  processedOutput.set(audioBlock, offset);
 }
 console.log();
 
 // Remove output delay from the beginning
-const finalOutput = outputBuffer.slice(outputDelay, outputDelay + samples.length);
+const finalOutput = processedOutput.slice(
+  outputDelay,
+  outputDelay + samples.length,
+);
 
 // Write mono output file
 try {

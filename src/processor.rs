@@ -13,7 +13,6 @@ use neon::{
 
 use crate::model::Model;
 use crate::processor_context::ProcessorContext;
-use crate::vad_context::VadContext;
 
 pub struct Processor {
     inner: Arc<Mutex<aic_sdk::Processor<'static>>>,
@@ -23,7 +22,7 @@ impl Finalize for Processor {
     fn finalize<'a, C: neon::prelude::Context<'a>>(self, _: &mut C) {}
 }
 
-fn parse_otel_config(
+pub(crate) fn parse_otel_config(
     cx: &mut FunctionContext,
     value: Handle<JsValue>,
 ) -> NeonResult<Option<aic_sdk::OtelConfig>> {
@@ -93,16 +92,15 @@ impl Processor {
     pub fn initialize(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<Processor>>(0)?;
         let sample_rate = cx.argument::<JsNumber>(1)?.value(&mut cx) as u32;
-        let num_frames = cx.argument::<JsNumber>(2)?.value(&mut cx) as usize;
-        let allow_variable_frames = cx.argument::<JsBoolean>(3)?.value(&mut cx);
+        let block_size = cx.argument::<JsNumber>(2)?.value(&mut cx) as usize;
+        let variable_block_size = cx.argument::<JsBoolean>(3)?.value(&mut cx);
 
         let mut processor = this.inner.lock().unwrap();
 
         let config = aic_sdk::ProcessorConfig {
             sample_rate,
-            num_channels: 1,
-            num_frames,
-            allow_variable_frames,
+            block_size,
+            variable_block_size,
         };
 
         processor
@@ -114,35 +112,37 @@ impl Processor {
 
     pub fn process(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<Processor>>(0)?;
-        let mut buffer = cx.argument::<JsTypedArray<f32>>(1)?;
+        let mut audio_block = cx.argument::<JsTypedArray<f32>>(1)?;
 
         let mut processor = this.inner.lock().unwrap();
 
-        let audio_data = buffer.as_mut_slice(&mut cx);
+        let samples = audio_block.as_mut_slice(&mut cx);
 
         processor
-            .process_interleaved(audio_data)
+            .process(samples)
             .or_else(|e| cx.throw_error(e.to_string()))?;
 
         Ok(cx.undefined())
     }
 
-    pub fn get_processor_context(mut cx: FunctionContext) -> JsResult<JsBox<ProcessorContext>> {
+    pub fn get_context(mut cx: FunctionContext) -> JsResult<JsBox<ProcessorContext>> {
         let this = cx.argument::<JsBox<Processor>>(0)?;
         let processor = this.inner.lock().unwrap();
 
-        let context = processor.processor_context();
-
-        Ok(cx.boxed(ProcessorContext { inner: context }))
+        Ok(cx.boxed(ProcessorContext {
+            inner: processor.context(),
+        }))
     }
 
-    pub fn get_vad_context(mut cx: FunctionContext) -> JsResult<JsBox<VadContext>> {
+    pub fn terminate_session(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<Processor>>(0)?;
-        let processor = this.inner.lock().unwrap();
+        let mut processor = this.inner.lock().unwrap();
 
-        let context = processor.vad_context();
+        processor
+            .terminate_session()
+            .or_else(|e| cx.throw_error(e.to_string()))?;
 
-        Ok(cx.boxed(VadContext { inner: context }))
+        Ok(cx.undefined())
     }
 }
 
@@ -150,11 +150,8 @@ pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()>
     cx.export_function("processorNew", Processor::new)?;
     cx.export_function("processorInitialize", Processor::initialize)?;
     cx.export_function("processorProcess", Processor::process)?;
-    cx.export_function(
-        "processorGetProcessorContext",
-        Processor::get_processor_context,
-    )?;
-    cx.export_function("processorGetVadContext", Processor::get_vad_context)?;
+    cx.export_function("processorGetContext", Processor::get_context)?;
+    cx.export_function("processorTerminateSession", Processor::terminate_session)?;
 
     Ok(())
 }

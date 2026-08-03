@@ -16,6 +16,13 @@ export AIC_SDK_LICENSE="your-license-key"
 node examples/basic.js
 ```
 
+Run the voice activity detection example:
+
+```bash
+export AIC_SDK_LICENSE="your-license-key"
+node examples/vad.js
+```
+
 Run the file processing example:
 
 ```bash

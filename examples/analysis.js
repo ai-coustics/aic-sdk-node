@@ -37,7 +37,7 @@ function printResult(label, result) {
   console.log("  Packet loss:       ", result.packetLoss.toFixed(4));
 }
 
-// --- FileAnalyzer: analyze a complete mono buffer ---------------------------
+// --- FileAnalyzer: analyze a complete mono signal ---------------------------
 
 // Twelve seconds of low-level test audio.
 const audio = new Float32Array(sampleRate * 12);
@@ -62,12 +62,12 @@ try {
 try {
   const { collector, analyzer } = analyzerPair(model, licenseKey);
 
-  const numFrames = model.getOptimalNumFrames(sampleRate);
-  collector.initialize(sampleRate, numFrames, false);
+  const blockSize = model.getOptimalBlockSize(sampleRate);
+  collector.initialize(sampleRate, blockSize, false);
 
-  // Buffer five seconds of audio in optimal-size frames.
-  for (let offset = 0; offset + numFrames <= sampleRate * 5; offset += numFrames) {
-    collector.buffer(audio.subarray(offset, offset + numFrames));
+  // Pass five seconds of audio to the collector in optimal-size blocks.
+  for (let offset = 0; offset + blockSize <= sampleRate * 5; offset += blockSize) {
+    collector.buffer(audio.subarray(offset, offset + blockSize));
   }
 
   const result = analyzer.analyzeBuffered();

@@ -4,6 +4,7 @@ mod analyzer;
 mod model;
 mod processor;
 mod processor_context;
+mod vad;
 mod vad_context;
 
 fn get_sdk_version(mut cx: FunctionContext) -> JsResult<JsString> {
@@ -31,7 +32,8 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     // ProcessorContext
     processor_context::register_exports(&mut cx)?;
 
-    // VadContext
+    // Vad / VadContext
+    vad::register_exports(&mut cx)?;
     vad_context::register_exports(&mut cx)?;
 
     // Analyzer / Collector

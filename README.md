@@ -1,6 +1,6 @@
 # aic-sdk - Node.js Bindings for ai-coustics SDK
 
-Node.js wrapper for the ai-coustics Speech Enhancement SDK.
+Node.js wrapper for the ai-coustics SDK.
 
 For comprehensive documentation, visit [docs.ai-coustics.com](https://docs.ai-coustics.com).
 
@@ -27,15 +27,15 @@ const model = Model.fromFile(modelPath);
 
 // Get optimal configuration
 const sampleRate = model.getOptimalSampleRate();
-const numFrames = model.getOptimalNumFrames(sampleRate);
+const blockSize = model.getOptimalBlockSize(sampleRate);
 
 // Create and initialize processor
 const processor = new Processor(model, licenseKey);
-processor.initialize(sampleRate, numFrames, false);
+processor.initialize(sampleRate, blockSize, false);
 
 // Process mono audio (Float32Array, modified in-place)
-const audioBuffer = new Float32Array(numFrames);
-processor.process(audioBuffer);
+const audioBlock = new Float32Array(blockSize);
+processor.process(audioBlock);
 ```
 
 ## Usage
@@ -76,8 +76,8 @@ const modelId = model.getId();
 // Get optimal sample rate for the model
 const optimalRate = model.getOptimalSampleRate();
 
-// Get optimal frame count for a specific sample rate
-const optimalFrames = model.getOptimalNumFrames(48000);
+// Get optimal block size for a specific sample rate
+const optimalBlockSize = model.getOptimalBlockSize(48000);
 ```
 
 ### Configuring the Processor
@@ -88,9 +88,9 @@ const processor = new Processor(model, licenseKey);
 
 // Initialize with audio settings
 processor.initialize(
-  sampleRate,           // Sample rate in Hz (8000 - 192000)
-  numFrames,            // Samples per processing call
-  allowVariableFrames   // Allow variable frame sizes (default: false)
+  sampleRate,          // Sample rate in Hz (8000 - 192000)
+  blockSize,           // Samples per processing call
+  variableBlockSize   // Allow variable block sizes (default: false)
 );
 ```
 
@@ -103,6 +103,7 @@ const licenseKey = process.env.AIC_SDK_LICENSE;
 const model = Model.fromFile("path/to/model.aicmodel");
 
 // Override AIC_SDK_OTEL_ENABLE for this processor only.
+// The same configuration can be passed to a Vad.
 const otel = OtelConfig.withSessionId("session-1");
 const processor = new Processor(model, licenseKey, otel);
 
@@ -127,17 +128,31 @@ stays in use.
 ```javascript
 const model = Model.fromFile("path/to/model.aicmodel");
 const processor = new Processor(model, jwtLicense);
-const processorContext = processor.getProcessorContext();
+const processorContext = processor.getContext();
 
 processorContext.updateBearerToken(renewedJwt);
 ```
+
+The same applies to `VadContext.updateBearerToken()` for a VAD created with a JWT license.
 
 ### Processing Audio
 
 ```javascript
 // Mono audio (Float32Array), enhanced in-place
-const buffer = new Float32Array(numFrames);
-processor.process(buffer);
+const audioBlock = new Float32Array(blockSize);
+processor.process(audioBlock);
+```
+
+### Ending a Session
+
+Telemetry sessions end automatically when their processor, VAD, or analyzer is destroyed. Call
+`terminateSession()` to end one at a specific lifecycle event. The instance cannot process or
+analyze more audio afterwards.
+
+```javascript
+processor.terminateSession();
+// vad.terminateSession();
+// analyzer.terminateSession();
 ```
 
 ### Processor Context
@@ -146,12 +161,12 @@ processor.process(buffer);
 const { ProcessorParameter } = require("@ai-coustics/aic-sdk");
 
 // Get processor context
-const procCtx = processor.getProcessorContext();
+const procCtx = processor.getContext();
 
 // Get output delay in samples
 const delay = procCtx.getOutputDelay();
 
-// Reset processor state (clears internal buffers)
+// Reset processor state (clears internal state)
 procCtx.reset();
 
 // Set enhancement parameters
@@ -165,35 +180,42 @@ console.log(`Enhancement level: ${level}`);
 
 ### Voice Activity Detection (VAD)
 
+Voice activity detection uses a separate `Vad` instance created from a dedicated VAD model
+(for example `vad-2.1-xxs-16khz`). Enhancement models are rejected.
+
 ```javascript
-const { VadParameter } = require("@ai-coustics/aic-sdk");
+const { Model, Vad, VadParameter } = require("@ai-coustics/aic-sdk");
 
-// Get VAD context from processor
-const vadCtx = processor.getVadContext();
+const vadModelPath = Model.download("vad-2.1-xxs-16khz", "./models");
+const vadModel = Model.fromFile(vadModelPath);
+const sampleRate = vadModel.getOptimalSampleRate();
+const blockSize = vadModel.getOptimalBlockSize(sampleRate);
 
-// Configure VAD parameters
-vadCtx.setParameter(VadParameter.Sensitivity, 6.0);
-vadCtx.setParameter(VadParameter.SpeechHoldDuration, 0.05);
-vadCtx.setParameter(VadParameter.MinimumSpeechDuration, 0.0);
+const vad = new Vad(vadModel, licenseKey);
+vad.initialize(sampleRate, blockSize, false);
+const vadContext = vad.getContext();
 
-// Get parameter values
-const sensitivity = vadCtx.getParameter(VadParameter.Sensitivity);
-console.log(`VAD sensitivity: ${sensitivity}`);
+// Sensitivity is the probability threshold of the VAD model output.
+vadContext.setParameter(VadParameter.Sensitivity, 0.5);
+vadContext.setParameter(VadParameter.SpeechHoldDuration, 0.05);
+vadContext.setParameter(VadParameter.MinimumSpeechDuration, 0.0);
 
-// Check for speech (after processing audio through the processor)
-if (vadCtx.isSpeechDetected()) {
-  console.log("Speech detected!");
-}
+// Feed mono audio to the detector. The audio is not modified.
+const audioBlock = new Float32Array(blockSize);
+vad.process(audioBlock);
 
-// Read the raw VAD model output probability
-const probability = vadCtx.rawVadProbability();
-console.log(`Raw VAD probability: ${probability}`);
+console.log(`Prediction delay: ${vadContext.getOutputDelay()} samples`);
+console.log(`Speech detected: ${vadContext.isSpeechDetected()}`);
+console.log(`Raw probability: ${vadContext.rawVadProbability()}`);
+
+// Clear the prediction and internal state when a stream is interrupted.
+vadContext.reset();
 ```
 
 ### Audio Analysis
 
 Analysis models (for example `tyto-l-16khz`) score audio quality instead of enhancing it. Use
-`FileAnalyzer` for complete mono buffers already in memory, or `analyzerPair` for streaming
+`FileAnalyzer` for complete audio files, or `analyzerPair` for streaming
 analysis.
 
 #### FileAnalyzer
@@ -235,14 +257,14 @@ const model = Model.fromFile("path/to/tyto-l-16khz.aicmodel");
 const { collector, analyzer } = analyzerPair(model, licenseKey);
 
 const sampleRate = model.getOptimalSampleRate();
-const numFrames = model.getOptimalNumFrames(sampleRate);
-collector.initialize(sampleRate, numFrames, false);
+const blockSize = model.getOptimalBlockSize(sampleRate);
+collector.initialize(sampleRate, blockSize, false);
 
-// Buffer mono audio chunks (for example on an audio thread).
-const chunk = new Float32Array(numFrames);
-collector.buffer(chunk);
+// Pass one mono audio block at a time (for example on an audio thread).
+const audioBlock = new Float32Array(blockSize);
+collector.buffer(audioBlock);
 
-// Analyze the buffered audio off the audio thread.
+// Analyze the collected audio off the audio thread.
 const result = analyzer.analyzeBuffered();
 console.log("Risk score:", result.riskScore);
 
@@ -252,7 +274,8 @@ analyzer.reset();
 
 ## Examples
 
-See the [`basic.js`](examples/basic.js) file for a complete working example.
+See [`basic.js`](examples/basic.js) for enhancement and [`vad.js`](examples/vad.js) for
+voice activity detection.
 
 ## Documentation
 

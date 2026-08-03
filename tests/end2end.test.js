@@ -3,8 +3,11 @@ const assert = require("assert");
 
 const {
   Model,
+  OtelConfig,
   Processor,
   ProcessorParameter,
+  Vad,
+  VadParameter,
   FileAnalyzer,
   analyzerPair,
 } = require("..");
@@ -13,6 +16,7 @@ const {
   TEST_AUDIO_ENHANCED_PATH,
   VAD_RESULTS_PATH,
   getTestModelPath,
+  getVadModelPath,
   getAnalysisModelPath,
   licenseKey,
   loadWavAudio,
@@ -21,7 +25,7 @@ const {
 
 /**
  * Tests audio enhancement by processing an entire mono file containing voice in a single pass.
- * Uses a non-optimal frame size (full file length) to verify the internal frame adapter handles
+ * Uses a non-optimal block size (full file length) to verify the internal block adapter handles
  * arbitrary input sizes correctly. Uses a reduced enhancement level (0.9) to exercise non-default
  * parameter paths. Compares output against a pre-generated reference file.
  */
@@ -32,9 +36,9 @@ function testProcessFullFile() {
   const model = Model.fromFile(getTestModelPath());
 
   const processor = new Processor(model, licenseKey());
-  processor.initialize(audio.sampleRate, audio.numFrames, false);
+  processor.initialize(audio.sampleRate, audio.sampleCount, false);
 
-  const procCtx = processor.getProcessorContext();
+  const procCtx = processor.getContext();
   procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.9);
 
   const samples = new Float32Array(audio.samples);
@@ -59,42 +63,34 @@ function testProcessFullFile() {
     0,
     `${mismatchCount} samples did not match expected output`,
   );
+  processor.terminateSession();
   console.log("  PASSED");
 }
 
 /**
- * Tests block-based audio processing with voice activity detection (VAD).
- * Processes audio in optimal frame-sized blocks and collects per-block speech detection results.
- * The processor is set to bypass mode to verify that VAD continues to work even when audio
- * enhancement is disabled. Compares the VAD output sequence against a pre-generated reference
- * to ensure deterministic behavior.
+ * Tests dedicated VAD processing in optimal-size blocks against a deterministic reference.
  */
 function testProcessBlocksWithVad() {
   console.log("Running: testProcessBlocksWithVad");
 
   const audio = loadWavAudio(TEST_AUDIO_PATH);
-  const model = Model.fromFile(getTestModelPath());
+  const model = Model.fromFile(getVadModelPath());
+  const blockSize = model.getOptimalBlockSize(audio.sampleRate);
 
-  const optimalNumFrames = model.getOptimalNumFrames(audio.sampleRate);
+  const vad = new Vad(model, licenseKey());
+  vad.initialize(audio.sampleRate, blockSize, false);
+  const vadContext = vad.getContext();
 
-  const processor = new Processor(model, licenseKey());
-  processor.initialize(audio.sampleRate, optimalNumFrames, false);
-
-  const procCtx = processor.getProcessorContext();
-  procCtx.setParameter(ProcessorParameter.Bypass, 1.0);
-
-  const vadCtx = processor.getVadContext();
+  assert(vadContext.getOutputDelay() > 0, "VAD should report a prediction delay");
 
   const samples = new Float32Array(audio.samples);
-  const blockSize = optimalNumFrames;
   const speechDetectedResults = [];
   const rawVadProbabilities = [];
 
   for (let offset = 0; offset + blockSize <= samples.length; offset += blockSize) {
-    const chunk = samples.subarray(offset, offset + blockSize);
-    processor.process(chunk);
-    speechDetectedResults.push(vadCtx.isSpeechDetected());
-    rawVadProbabilities.push(vadCtx.rawVadProbability());
+    vad.process(samples.subarray(offset, offset + blockSize));
+    speechDetectedResults.push(vadContext.isSpeechDetected());
+    rawVadProbabilities.push(vadContext.rawVadProbability());
   }
 
   assert(
@@ -104,58 +100,104 @@ function testProcessBlocksWithVad() {
     "Raw VAD probabilities must be in the range 0.0 to 1.0",
   );
 
-  const expectedJson = fs.readFileSync(VAD_RESULTS_PATH, "utf8");
-  const expectedResults = JSON.parse(expectedJson);
-
+  const expectedResults = JSON.parse(
+    fs.readFileSync(VAD_RESULTS_PATH, "utf8"),
+  );
   assert.deepStrictEqual(
     speechDetectedResults,
     expectedResults,
     "VAD results do not match expected",
   );
+  vad.terminateSession();
   console.log("  PASSED");
 }
 
 /**
- * Tests that VAD output is independent of the enhancement level.
- * Uses an enhancement level of 0.5 (instead of bypass) and verifies that the VAD results
- * match the same reference as the bypass test, confirming enhancement settings do not
- * affect voice activity detection.
+ * Tests that resetting the VAD immediately clears its published prediction.
  */
-function testProcessBlocksWithVadAndEnhancement() {
-  console.log("Running: testProcessBlocksWithVadAndEnhancement");
+function testVadResetClearsPublishedPrediction() {
+  console.log("Running: testVadResetClearsPublishedPrediction");
 
   const audio = loadWavAudio(TEST_AUDIO_PATH);
-  const model = Model.fromFile(getTestModelPath());
+  const model = Model.fromFile(getVadModelPath());
+  const blockSize = model.getOptimalBlockSize(audio.sampleRate);
 
-  const optimalNumFrames = model.getOptimalNumFrames(audio.sampleRate);
+  const vad = new Vad(model, licenseKey());
+  vad.initialize(audio.sampleRate, blockSize, false);
+  const vadContext = vad.getContext();
 
-  const processor = new Processor(model, licenseKey());
-  processor.initialize(audio.sampleRate, optimalNumFrames, false);
-
-  const procCtx = processor.getProcessorContext();
-  procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.5);
-
-  const vadCtx = processor.getVadContext();
-
-  const samples = new Float32Array(audio.samples);
-  const blockSize = optimalNumFrames;
-  const speechDetectedResults = [];
-
-  for (let offset = 0; offset + blockSize <= samples.length; offset += blockSize) {
-    const chunk = samples.subarray(offset, offset + blockSize);
-    processor.process(chunk);
-    speechDetectedResults.push(vadCtx.isSpeechDetected());
+  let speechWasDetected = false;
+  for (let offset = 0; offset + blockSize <= audio.samples.length; offset += blockSize) {
+    vad.process(audio.samples.subarray(offset, offset + blockSize));
+    if (vadContext.isSpeechDetected()) {
+      speechWasDetected = true;
+      break;
+    }
   }
 
-  // Compare against the same expected results as the bypass test
-  // This verifies that VAD output is independent of enhancement level
-  const expectedJson = fs.readFileSync(VAD_RESULTS_PATH, "utf8");
-  const expectedResults = JSON.parse(expectedJson);
+  assert(speechWasDetected, "The test signal should contain detectable speech");
 
-  assert.deepStrictEqual(
-    speechDetectedResults,
-    expectedResults,
-    "VAD results do not match expected",
+  vadContext.reset();
+  assert.strictEqual(vadContext.isSpeechDetected(), false);
+  assert.strictEqual(vadContext.rawVadProbability(), 0.0);
+  console.log("  PASSED");
+}
+
+/**
+ * Tests that processing before VAD initialization is rejected.
+ */
+function testVadRejectsProcessingBeforeInitialize() {
+  console.log("Running: testVadRejectsProcessingBeforeInitialize");
+
+  const model = Model.fromFile(getVadModelPath());
+  const vad = new Vad(model, licenseKey());
+
+  assert.throws(
+    () => vad.process(new Float32Array(160)),
+    /must be initialized/,
+  );
+  console.log("  PASSED");
+}
+
+/**
+ * Tests VAD parameter round-tripping and the dedicated-model sensitivity range.
+ */
+function testVadParameters() {
+  console.log("Running: testVadParameters");
+
+  const model = Model.fromFile(getVadModelPath());
+  const vad = new Vad(model, licenseKey(), OtelConfig.disabled());
+  const vadContext = vad.getContext();
+
+  vadContext.setParameter(VadParameter.Sensitivity, 0.5);
+  assert.strictEqual(
+    vadContext.getParameter(VadParameter.Sensitivity),
+    0.5,
+  );
+  assert.throws(
+    () => vadContext.setParameter(VadParameter.Sensitivity, 7.0),
+    /out of range/,
+  );
+
+  // This succeeds for JWT licenses and returns TokenUpdateUnsupported for other license types.
+  try {
+    vadContext.updateBearerToken(licenseKey());
+  } catch (error) {
+    assert.match(error.message, /token|JWT/i);
+  }
+  console.log("  PASSED");
+}
+
+/**
+ * Tests that enhancement models cannot be used to create a dedicated VAD.
+ */
+function testVadRejectsEnhancementModel() {
+  console.log("Running: testVadRejectsEnhancementModel");
+
+  const model = Model.fromFile(getTestModelPath());
+  assert.throws(
+    () => new Vad(model, licenseKey()),
+    /not supported by this operation/,
   );
   console.log("  PASSED");
 }
@@ -243,13 +285,17 @@ function testAnalyzerPairDirect() {
   const { collector, analyzer } = analyzerPair(model, licenseKey());
 
   const sampleRate = 16000;
-  const numFrames = model.getOptimalNumFrames(sampleRate);
-  collector.initialize(sampleRate, numFrames, false);
+  const blockSize = model.getOptimalBlockSize(sampleRate);
+  collector.initialize(sampleRate, blockSize, false);
 
-  // Buffer five seconds of silence in optimal-size frames, then analyze.
-  const frame = new Float32Array(numFrames);
-  for (let buffered = 0; buffered < sampleRate * 5; buffered += numFrames) {
-    collector.buffer(frame);
+  // Pass five seconds of silence to the collector in optimal-size blocks, then analyze.
+  const audioBlock = new Float32Array(blockSize);
+  for (
+    let collectedSamples = 0;
+    collectedSamples < sampleRate * 5;
+    collectedSamples += blockSize
+  ) {
+    collector.buffer(audioBlock);
   }
 
   const result = analyzer.analyzeBuffered();
@@ -257,6 +303,7 @@ function testAnalyzerPairDirect() {
 
   // Reset should succeed and leave the collector initialized for reuse.
   analyzer.reset();
+  analyzer.terminateSession();
   console.log("  PASSED");
 }
 
@@ -278,10 +325,10 @@ function testAnalyzerRejectsNonAnalysisModel() {
 }
 
 /**
- * Tests that buffering before the collector is initialized is rejected.
+ * Tests that passing an audio block before the collector is initialized is rejected.
  */
-function testCollectorRejectsBufferingBeforeInitialize() {
-  console.log("Running: testCollectorRejectsBufferingBeforeInitialize");
+function testCollectorRejectsBlockBeforeInitialize() {
+  console.log("Running: testCollectorRejectsBlockBeforeInitialize");
 
   const model = Model.fromFile(getAnalysisModelPath());
   const { collector } = analyzerPair(model, licenseKey());
@@ -294,21 +341,21 @@ function testCollectorRejectsBufferingBeforeInitialize() {
 }
 
 /**
- * Tests that the collector rejects buffers whose size does not match the initialized config.
+ * Tests that the collector rejects audio blocks whose size does not match the initialized config.
  */
 function testCollectorValidatesLayout() {
   console.log("Running: testCollectorValidatesLayout");
 
   const model = Model.fromFile(getAnalysisModelPath());
   const sampleRate = model.getOptimalSampleRate();
-  const numFrames = model.getOptimalNumFrames(sampleRate);
+  const blockSize = model.getOptimalBlockSize(sampleRate);
 
   const { collector } = analyzerPair(model, licenseKey());
-  collector.initialize(sampleRate, numFrames, false);
+  collector.initialize(sampleRate, blockSize, false);
 
-  // A buffer whose length differs from the initialized frame count is rejected.
+  // An audio block whose length differs from the initialized block size is rejected.
   assert.throws(
-    () => collector.buffer(new Float32Array(numFrames - 1)),
+    () => collector.buffer(new Float32Array(blockSize - 1)),
     /differs from the one provided/,
   );
   console.log("  PASSED");
@@ -330,51 +377,51 @@ function testAnalyzerPairRejectsLicenseWithNul() {
 }
 
 /**
- * Tests that variable frame sizes are accepted when enabled and rejected when disabled.
+ * Tests that variable block sizes are accepted when enabled and rejected when disabled.
  */
-function testCollectorVariableFrames() {
-  console.log("Running: testCollectorVariableFrames");
+function testCollectorVariableBlockSize() {
+  console.log("Running: testCollectorVariableBlockSize");
 
   const model = Model.fromFile(getAnalysisModelPath());
   const sampleRate = model.getOptimalSampleRate();
-  const numFrames = model.getOptimalNumFrames(sampleRate);
-  const full = new Float32Array(numFrames);
-  const short = new Float32Array(20);
+  const blockSize = model.getOptimalBlockSize(sampleRate);
+  const fullBlock = new Float32Array(blockSize);
+  const shortBlock = new Float32Array(20);
 
-  // Disabled: a short buffer after a full one is rejected.
+  // Disabled: a short audio block after a full one is rejected.
   const disabled = analyzerPair(model, licenseKey());
-  disabled.collector.initialize(sampleRate, numFrames, false);
-  disabled.collector.buffer(full);
+  disabled.collector.initialize(sampleRate, blockSize, false);
+  disabled.collector.buffer(fullBlock);
   assert.throws(
-    () => disabled.collector.buffer(short),
+    () => disabled.collector.buffer(shortBlock),
     /differs from the one provided/,
   );
 
-  // Enabled: a short buffer is accepted.
+  // Enabled: a short audio block is accepted.
   const enabled = analyzerPair(model, licenseKey());
-  enabled.collector.initialize(sampleRate, numFrames, true);
-  enabled.collector.buffer(full);
-  enabled.collector.buffer(short); // should not throw
+  enabled.collector.initialize(sampleRate, blockSize, true);
+  enabled.collector.buffer(fullBlock);
+  enabled.collector.buffer(shortBlock); // should not throw
   console.log("  PASSED");
 }
 
 /**
- * Tests that resetting the analyzer leaves the collector initialized for continued buffering.
+ * Tests that resetting the analyzer leaves the collector initialized for continued collection.
  */
 function testAnalyzerResetKeepsCollectorInitialized() {
   console.log("Running: testAnalyzerResetKeepsCollectorInitialized");
 
   const model = Model.fromFile(getAnalysisModelPath());
   const sampleRate = model.getOptimalSampleRate();
-  const numFrames = model.getOptimalNumFrames(sampleRate);
+  const blockSize = model.getOptimalBlockSize(sampleRate);
 
   const { collector, analyzer } = analyzerPair(model, licenseKey());
-  collector.initialize(sampleRate, numFrames, false);
+  collector.initialize(sampleRate, blockSize, false);
 
   analyzer.reset();
 
-  // Buffering still works after reset because the collector stays initialized.
-  collector.buffer(new Float32Array(numFrames));
+  // Collecting another audio block works after reset because the collector stays initialized.
+  collector.buffer(new Float32Array(blockSize));
   assertValidAnalysisResult(analyzer.analyzeBuffered());
   console.log("  PASSED");
 }
@@ -386,15 +433,18 @@ function runAllTests() {
   const tests = [
     testProcessFullFile,
     testProcessBlocksWithVad,
-    testProcessBlocksWithVadAndEnhancement,
+    testVadResetClearsPublishedPrediction,
+    testVadRejectsProcessingBeforeInitialize,
+    testVadParameters,
+    testVadRejectsEnhancementModel,
     testFileAnalyzerShortAudio,
     testFileAnalyzerWindowing,
     testAnalyzerPairDirect,
     testAnalyzerRejectsNonAnalysisModel,
-    testCollectorRejectsBufferingBeforeInitialize,
+    testCollectorRejectsBlockBeforeInitialize,
     testCollectorValidatesLayout,
     testAnalyzerPairRejectsLicenseWithNul,
-    testCollectorVariableFrames,
+    testCollectorVariableBlockSize,
     testAnalyzerResetKeepsCollectorInitialized,
   ];
 

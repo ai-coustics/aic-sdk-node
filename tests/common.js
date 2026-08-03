@@ -51,6 +51,25 @@ function getTestModelPath() {
 }
 
 /**
+ * Gets the path to the dedicated VAD test model, downloading if necessary.
+ * @returns {string} - Path to the VAD model file
+ */
+function getVadModelPath() {
+  const targetDir = path.join(__dirname, "..", "target");
+
+  const existing = findExistingModel(targetDir, "vad_2_1_xxs_16khz");
+  if (existing) {
+    return existing;
+  }
+
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  return Model.download("vad-2.1-xxs-16khz", targetDir);
+}
+
+/**
  * Gets the path to the analysis test model, downloading if necessary.
  * @returns {string} - Path to the analysis model file
  */
@@ -86,7 +105,7 @@ function licenseKey() {
  * Audio data structure returned by loadWavAudio.
  * @typedef {Object} TestAudio
  * @property {number} sampleRate - Sample rate in Hz
- * @property {number} numFrames - Number of samples
+ * @property {number} sampleCount - Number of samples
  * @property {Float32Array} samples - Mono audio samples
  */
 
@@ -97,8 +116,8 @@ function licenseKey() {
  * @returns {TestAudio} - Audio data structure
  */
 function loadWavAudio(filePath) {
-  const buffer = fs.readFileSync(filePath);
-  const wav = new WaveFile(buffer);
+  const fileBytes = fs.readFileSync(filePath);
+  const wav = new WaveFile(fileBytes);
 
   const sampleRate = wav.fmt.sampleRate;
   const audioFormat = wav.fmt.audioFormat;
@@ -114,12 +133,12 @@ function loadWavAudio(filePath) {
       bitsPerSample === 32);
 
   if (isFloat32) {
-    // Read raw buffer directly as Float32Array (wavefile misinterprets float samples)
-    const dataBuffer = wav.data.samples;
+    // View the raw sample bytes directly as float32 values (wavefile misinterprets them).
+    const sampleBytes = wav.data.samples;
     samples = new Float32Array(
-      dataBuffer.buffer,
-      dataBuffer.byteOffset,
-      dataBuffer.length / 4,
+      sampleBytes.buffer,
+      sampleBytes.byteOffset,
+      sampleBytes.length / 4,
     );
   } else {
     // Integer format: normalize manually (divide by 2^(bits-1), no dithering)
@@ -133,7 +152,7 @@ function loadWavAudio(filePath) {
 
   return {
     sampleRate,
-    numFrames: samples.length,
+    sampleCount: samples.length,
     samples,
   };
 }
@@ -154,6 +173,7 @@ module.exports = {
   TEST_AUDIO_ENHANCED_PATH,
   VAD_RESULTS_PATH,
   getTestModelPath,
+  getVadModelPath,
   getAnalysisModelPath,
   licenseKey,
   loadWavAudio,

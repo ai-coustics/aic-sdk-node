@@ -30,9 +30,8 @@ dependencies = [
 
 [[package]]
 name = "aic-model-downloader"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "060b7a783a6e1e616fe4940337b9a5618be7d4010be475792d4bd0e5e76aefab"
+version = "0.22.0"
+source = "git+https://github.com/ai-coustics/aic-sdk-rs?rev=ea034d7b933ddc8c7fabb8b9b8f90b18a198256f#ea034d7b933ddc8c7fabb8b9b8f90b18a198256f"
 dependencies = [
  "serde",
  "serde_json",
@@ -43,9 +42,8 @@ dependencies = [
 
 [[package]]
 name = "aic-sdk"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1ebca813f22d9b0f1260118774f547dbbd5069b4feeeccf7d39b779c5f97fe2"
+version = "0.22.0"
+source = "git+https://github.com/ai-coustics/aic-sdk-rs?rev=ea034d7b933ddc8c7fabb8b9b8f90b18a198256f#ea034d7b933ddc8c7fabb8b9b8f90b18a198256f"
 dependencies = [
  "aic-model-downloader",
  "aic-sdk-sys",
@@ -54,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "aic-sdk-node"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "aic-sdk",
  "neon",
@@ -62,9 +60,8 @@ dependencies = [
 
 [[package]]
 name = "aic-sdk-sys"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b248245f7731125a17855ba59b9402041ccd49f318fbc973be6232cd0fbdc2a"
+version = "0.22.0"
+source = "git+https://github.com/ai-coustics/aic-sdk-rs?rev=ea034d7b933ddc8c7fabb8b9b8f90b18a198256f#ea034d7b933ddc8c7fabb8b9b8f90b18a198256f"
 dependencies = [
  "bindgen",
  "flate2",
