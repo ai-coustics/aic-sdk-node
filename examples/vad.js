@@ -39,8 +39,8 @@ try {
   console.log("Block Size:", blockSize);
   console.log("Prediction Delay:", vadContext.getOutputDelay(), "samples");
 
-  // Replace this silence with mono audio from your application. Processing updates the
-  // prediction but does not modify the audio block.
+  // Replace this silence with mono audio from your application. Processing only reads the
+  // audio block to update the prediction, it never modifies it.
   const audioBlock = new Float32Array(blockSize);
   vad.process(audioBlock);
 

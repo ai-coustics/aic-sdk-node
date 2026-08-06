@@ -1,7 +1,8 @@
 ### New Features
 
 - Added a standalone `Vad` API backed by dedicated VAD models, with its own `initialize()`,
-  `process()`, `context()`, and `terminateSession()` methods.
+  `process()`, `context()`, and `terminateSession()` methods. `Vad.process()` only reads the
+  audio block it is given, it never modifies it.
 - Added `VadContext.reset()`, `VadContext.getOutputDelay()`, and
   `VadContext.updateBearerToken()`.
 - Added `terminateSession()` to `Processor` and `Analyzer`.

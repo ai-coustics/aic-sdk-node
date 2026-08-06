@@ -66,8 +66,8 @@ impl Vad {
 
     pub fn process(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<Vad>>(0)?;
-        let mut audio_block = cx.argument::<JsTypedArray<f32>>(1)?;
-        let samples = audio_block.as_mut_slice(&mut cx);
+        let audio_block = cx.argument::<JsTypedArray<f32>>(1)?;
+        let samples = audio_block.as_slice(&cx);
 
         this.inner
             .lock()

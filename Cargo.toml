@@ -12,7 +12,7 @@ version = "0.22.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-aic-sdk = { git = "https://github.com/ai-coustics/aic-sdk-rs", rev = "ea034d7b933ddc8c7fabb8b9b8f90b18a198256f", features = ["download-lib", "download-model"] }
+aic-sdk = { git = "https://github.com/ai-coustics/aic-sdk-rs", rev = "fd3e596b3e2dafe01a985d4edd1b720862dd8c94", features = ["download-lib", "download-model"] }
 neon = "1.1"
 
 [profile.release]

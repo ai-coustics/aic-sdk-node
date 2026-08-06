@@ -868,7 +868,8 @@ class Vad {
   /**
    * Processes mono audio and updates the VAD prediction.
    *
-   * The audio is input-only and is not enhanced or otherwise modified.
+   * This method does not modify the input audio buffer, it only reads from it. Read the
+   * prediction through a {@link VadContext}.
    *
    * @param {Float32Array} samples - Mono audio block of size blockSize
    * @throws {Error} If processing fails.

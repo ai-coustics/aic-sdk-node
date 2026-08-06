@@ -200,7 +200,7 @@ vadContext.setParameter(VadParameter.Sensitivity, 0.5);
 vadContext.setParameter(VadParameter.SpeechHoldDuration, 0.05);
 vadContext.setParameter(VadParameter.MinimumSpeechDuration, 0.0);
 
-// Feed mono audio to the detector. The audio is not modified.
+// Feed mono audio to the detector. The audio block is only read, never modified.
 const audioBlock = new Float32Array(blockSize);
 vad.process(audioBlock);
 
