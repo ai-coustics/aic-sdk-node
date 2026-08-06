@@ -8,8 +8,13 @@ fi
 
 VERSION="$1"
 
-# Update main package
-npm version "$VERSION" --no-git-tag-version
+# Update main package. `npm version` fails when the version is already the target one, so
+# skip it in that case to keep this script idempotent.
+if [ "$(node -p "require('./package.json').version")" != "$VERSION" ]; then
+  npm version "$VERSION" --no-git-tag-version
+else
+  echo "package.json already at version $VERSION"
+fi
 
 # Update Cargo.toml
 if [ -f "Cargo.toml" ]; then
@@ -22,7 +27,11 @@ fi
 for dir in npm/*/; do
   if [ -f "$dir/package.json" ]; then
     cd "$dir"
-    npm version "$VERSION" --no-git-tag-version
+    if [ "$(node -p "require('./package.json').version")" != "$VERSION" ]; then
+      npm version "$VERSION" --no-git-tag-version
+    else
+      echo "$dir already at version $VERSION"
+    fi
     cd ../..
   fi
 done
