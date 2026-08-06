@@ -58,8 +58,9 @@ const ProcessorParameter = {
    *
    * The exact behavior depends on the active model:
    *
-   * - Quail Models: Controls how aggressively the model suppresses noise. When used with Quail Voice Focus, it also suppresses background and competing speech.
-   * - Sparrow Models: Controls the mixback and therefore the intensity of the enhancement.
+   * - Quail Models: Controls how aggressively the model suppresses noise. When used with Quail
+   *   Voice Focus, it also suppresses background and competing speech.
+   * - Rook Models: Controls the mixback and therefore the intensity of the enhancement.
    *
    * Range: 0.0 to 1.0
    */
@@ -93,7 +94,7 @@ const VadParameter = {
    *
    * **Range:** 0.0 to 300x model window length (value in seconds)
    *
-   * **Default:** 0.03 (30 ms)
+   * **Default:** model-specific
    */
   SpeechHoldDuration: native.VAD_PARAM_SPEECH_HOLD_DURATION,
 
@@ -101,11 +102,15 @@ const VadParameter = {
    * Controls the sensitivity of the VAD.
    *
    * VAD models output a probability of speech presence for each processed audio block,
-   * where 1.0 means the model is certain speech is present and 0.0 means it is certain
-   * speech is not present. A value above this threshold triggers a speech decision.
+   * 1.0 being the model is certain speech is present and 0.0 being the model is certain
+   * speech is not present. The probability is compared against the sensitivity threshold
+   * to determine if speech is detected.
    *
-   * Range: 0.0 to 1.0
-   * Default: model-specific.
+   * A value above the threshold will trigger a "speech detected" decision.
+   *
+   * **Range:** 0.0 to 1.0
+   *
+   * **Default:** model-specific
    */
   Sensitivity: native.VAD_PARAM_SENSITIVITY,
 
@@ -116,10 +121,13 @@ const VadParameter = {
    * This affects the stability of speech not detected -> detected transitions.
    *
    * NOTE: The VAD returns a value per processed audio block, so this duration is rounded
-   * to the closest model window length.
+   * to the closest model window length. For example, if the model has a processing window
+   * length of 10 ms, the VAD will round up/down to the closest multiple of 10 ms.
+   * Because of this, this parameter may return a different value than the one it was last set to.
    *
-   * Range: 0.0 to 1.0 (value in seconds)
-   * Default: 0.0
+   * **Range:** 0.0 to 1.0 (value in seconds)
+   *
+   * **Default:** model-specific
    */
   MinimumSpeechDuration: native.VAD_PARAM_MINIMUM_SPEECH_DURATION,
 };
@@ -181,10 +189,11 @@ class ProcessorContext {
   }
 
   /**
-   * Returns the total output delay in samples for the current audio configuration.
+   * Returns the delay applied to the audio in samples for the current audio configuration.
    *
-   * This function provides the complete end-to-end latency introduced by the model,
-   * which includes both algorithmic processing delay and any internal block-adaptation delay.
+   * This function provides the complete end-to-end latency introduced by the processor,
+   * which includes both algorithmic processing delay and any buffering overhead.
+   * The processed audio leaves {@link Processor#process} this many samples behind its input.
    * Use this value to synchronize enhanced audio with other streams or to implement
    * delay compensation in your application.
    *
@@ -192,7 +201,7 @@ class ProcessorContext {
    *   - Before initialization: Returns the base processing delay using the model's
    *     optimal block size at its native sample rate
    *   - After initialization: Returns the actual delay for your specific configuration,
-   *     including any additional block-adaptation delay from a non-optimal block size
+   *     including any additional buffering introduced by a non-optimal block size
    *
    * Important: The delay value is always expressed in samples at the sample rate
    * you configured during initialize(). To convert to time units:
@@ -204,11 +213,11 @@ class ProcessorContext {
    * @returns {number} The delay in samples.
    *
    * @example
-   * const delay = processorContext.getOutputDelay();
-   * console.log(`Output delay: ${delay} samples`);
+   * const delay = processorContext.getAudioDelay();
+   * console.log(`Audio delay: ${delay} samples`);
    */
-  getOutputDelay() {
-    return native.processorContextGetOutputDelay(this._context);
+  getAudioDelay() {
+    return native.processorContextGetAudioDelay(this._context);
   }
 
   /**
@@ -235,8 +244,13 @@ class ProcessorContext {
 /**
  * Thread-safe control handle for a {@link Vad}.
  *
- * Created via {@link Vad#getContext}. All contexts created from one VAD reference the same
- * detector instance.
+ * Created via {@link Vad#getContext}. Every method on this type maps to an SDK function that
+ * can be called from any thread, so a context can be used to read the prediction, read and
+ * write parameters, query the prediction delay, or reset the VAD while audio is being
+ * processed elsewhere.
+ *
+ * All contexts created from one VAD reference the same detector instance. If the backing VAD
+ * is destroyed, it stops producing new data. Dropping a context does not destroy the VAD.
  */
 class VadContext {
   constructor(nativeContext) {
@@ -256,11 +270,12 @@ class VadContext {
   }
 
   /**
-   * Returns the VAD's current prediction.
+   * Returns the VAD's prediction.
    *
    * The prediction lags its input by the number of samples returned by
-   * {@link VadContext#getOutputDelay}. If the backing VAD stops being processed, the
-   * prediction does not update.
+   * {@link VadContext#getPredictionDelay}. Align speech decisions to the input timeline
+   * using that delay. If the backing VAD stops being processed, the prediction does not
+   * update.
    *
    * @returns {boolean} True if speech is detected, false otherwise.
    */
@@ -269,8 +284,15 @@ class VadContext {
   }
 
   /**
-   * Returns the VAD model's raw speech probability without SDK post-processing such as
-   * sensitivity thresholding or speech hold duration.
+   * Returns the raw prediction of the VAD, without any processing.
+   *
+   * In contrast to the output of {@link VadContext#isSpeechDetected}, this is the model's
+   * direct prediction without going through the SDK's VAD post-processing (i.e. speech hold
+   * duration, sensitivity thresholding, etc.). Use it to build other abstractions on top of
+   * this data.
+   *
+   * The prediction lags its input by the number of samples returned by
+   * {@link VadContext#getPredictionDelay}.
    *
    * @returns {number} The raw VAD probability in the range 0.0 to 1.0.
    */
@@ -304,15 +326,42 @@ class VadContext {
   }
 
   /**
-   * Returns the end-to-end VAD prediction delay in samples.
+   * Returns the total VAD prediction delay in samples for the current audio configuration.
    *
-   * After initialization, this includes input reblocking and model processing latency at
-   * the configured sample rate. Use it to align VAD decisions with the input timeline.
+   * This function provides the complete end-to-end latency of the VAD prediction, which
+   * includes input reblocking, STFT, and model processing delay. Use this value to line up
+   * VAD decisions with the input timeline.
    *
-   * @returns {number} The prediction delay in samples.
+   * This delay is not applied to the audio: {@link Vad#process} leaves its input buffer
+   * untouched. The value only describes how far behind its input the published prediction is.
+   *
+   * When enhancement and VAD run together, feed the VAD the original input audio rather than
+   * the processor's output. This value is then the prediction's delay relative to that input,
+   * and it is independent of {@link ProcessorContext#getAudioDelay}.
+   *
+   * Delay behavior:
+   *   - Before initialization: Returns the base processing delay using the model's
+   *     optimal block size at its native sample rate
+   *   - After initialization: Returns the end-to-end VAD prediction delay at the initialized
+   *     sample rate, including the input-buffering latency of the configured block size
+   *
+   * Important: The delay value is always expressed in samples at the sample rate
+   * you configured during initialize(). To convert to time units:
+   * delay_ms = (delay_samples * 1000) / sample_rate
+   *
+   * Note: Using a block size different from the optimal value returned by
+   * Model.getOptimalBlockSize(), or enabling variable block sizes, can add input-buffering
+   * latency before a new VAD prediction is published. That latency is included in the
+   * reported delay.
+   *
+   * @returns {number} The delay in samples.
+   *
+   * @example
+   * const delay = vadContext.getPredictionDelay();
+   * console.log(`VAD prediction delay: ${delay} samples`);
    */
-  getOutputDelay() {
-    return native.vadContextGetOutputDelay(this._context);
+  getPredictionDelay() {
+    return native.vadContextGetPredictionDelay(this._context);
   }
 
   /**
@@ -648,8 +697,12 @@ class Model {
   /**
    * Creates a new model instance from a file.
    *
-   * A model can be used to create multiple processors, VADs, or analyzers according to
-   * its model type.
+   * A single model instance can be used to create multiple processors, VADs or analyzers,
+   * according to the model type.
+   *
+   * The model data is memory-mapped from the file, not copied into the process. Make sure
+   * the file is not modified or deleted while the model, or any object created from it, is
+   * alive.
    *
    * @param {string} path - Path to the model file (.aicmodel). You can download models manually
    *   from https://artifacts.ai-coustics.io or use Model.download() to fetch them programmatically.
@@ -669,13 +722,17 @@ class Model {
   /**
    * Downloads a model file from the ai-coustics artifact CDN.
    *
-   * This method fetches the model manifest, checks whether the requested model
-   * exists in a version compatible with this library, and downloads the model
-   * file into the provided directory.
+   * This method fetches the model manifest, verifies that the requested model exists in a
+   * version compatible with this library, and downloads the model file into the provided
+   * directory. If the model file already exists it is not re-downloaded. If the existing
+   * file's checksum does not match, the model is downloaded and the existing file replaced.
    *
-   * Note: This is a blocking operation.
+   * The manifest is never cached and is downloaded on every call, so the latest model
+   * versions are always used.
    *
-   * @param {string} modelId - The model identifier as listed in the manifest (e.g. "sparrow-l-16khz").
+   * Note: This is a blocking operation that performs network I/O.
+   *
+   * @param {string} modelId - The model identifier as listed in the manifest (e.g. "quail-l-16khz").
    *   Find available model IDs at https://artifacts.ai-coustics.io
    * @param {string} downloadDir - Directory where the downloaded model file should be stored
    * @returns {string} The full path to the downloaded model file.
@@ -684,7 +741,7 @@ class Model {
    * @see https://artifacts.ai-coustics.io for available model IDs.
    *
    * @example
-   * const path = Model.download("sparrow-l-16khz", "/tmp/models");
+   * const path = Model.download("quail-vf-2.2-s-16khz", "/tmp/models");
    * const model = Model.fromFile(path);
    */
   static download(modelId, downloadDir) {
@@ -720,11 +777,17 @@ class Model {
   /**
    * Retrieves the optimal block size for the model at a given sample rate.
    *
-   * Using the optimal block size minimizes latency by avoiding internal block adaptation. The
-   * optimal size varies with sample rate because each model operates on a fixed time window.
+   * Using the optimal block size minimizes latency by avoiding internal buffering. Using a
+   * different block size makes the processor introduce additional buffering latency on top of
+   * its base processing delay.
    *
-   * Call this before initializing a Processor, Vad, or Collector to determine the best
-   * block size for minimal latency.
+   * The optimal block size varies with the sample rate. Each model operates on a fixed time
+   * window length, so the required number of samples changes with the sample rate. For
+   * example, a model designed for 10 ms processing windows requires 480 samples at 48 kHz,
+   * but only 160 samples at 16 kHz to capture the same duration of audio.
+   *
+   * Call this with your intended sample rate before initializing a Processor, Vad or
+   * Collector to determine the best block size for minimal latency.
    *
    * @param {number} sampleRate - Sample rate in Hz
    * @returns {number} The optimal block size in samples.
@@ -770,7 +833,8 @@ class Processor {
   /**
    * Configures the processor for specific audio settings.
    *
-   * For the lowest delay, use the model's optimal sample rate and block size.
+   * This must be called before processing any audio. For the lowest delay, use the model's
+   * optimal sample rate and block size.
    * Do not call this from an audio processing thread because it allocates memory.
    *
    * @param {number} sampleRate - Sample rate in Hz (8000 - 192000)
@@ -788,9 +852,10 @@ class Processor {
   }
 
   /**
-   * Enhances a mono audio block in-place.
+   * Processes mono audio, enhancing speech in the provided audio block in-place.
    *
-   * @param {Float32Array} samples - Mono audio block of size blockSize
+   * @param {Float32Array} samples - Mono audio block of size blockSize. If variableBlockSize
+   *   was enabled, it may be shorter than blockSize
    * @throws {Error} If processing fails.
    */
   process(samples) {
@@ -851,18 +916,17 @@ class Vad {
   /**
    * Configures the VAD for specific audio settings.
    *
+   * This must be called before processing any audio. For the most frequent prediction
+   * updates, use the model's optimal sample rate and block size.
+   * Do not call this from an audio processing thread because it allocates memory.
+   *
    * @param {number} sampleRate - Sample rate in Hz (8000 - 192000)
    * @param {number} blockSize - Samples provided to each processing call
    * @param {boolean} [variableBlockSize=false] - Allow variable block sizes (adds latency)
    * @throws {Error} If the audio configuration is unsupported.
    */
   initialize(sampleRate, blockSize, variableBlockSize = false) {
-    native.vadInitialize(
-      this._vad,
-      sampleRate,
-      blockSize,
-      variableBlockSize,
-    );
+    native.vadInitialize(this._vad, sampleRate, blockSize, variableBlockSize);
   }
 
   /**
@@ -871,8 +935,20 @@ class Vad {
    * This method does not modify the input audio buffer, it only reads from it. Read the
    * prediction through a {@link VadContext}.
    *
-   * @param {Float32Array} samples - Mono audio block of size blockSize
+   * Recommendation: when enhancement and VAD run together, pass the original input audio
+   * here, not the output of {@link Processor#process}. Enhancement is designed to change the
+   * signal, so running the VAD on its output means detecting speech in audio that no longer
+   * matches what the VAD model expects, and it stacks the processor's audio delay on top of
+   * the VAD's prediction delay. Because this method does not modify its input, calling it on
+   * the same buffer before Processor.process() is enough:
+   *
+   * @param {Float32Array} samples - Mono audio block of size blockSize. If variableBlockSize
+   *   was enabled, it may be shorter than blockSize
    * @throws {Error} If processing fails.
+   *
+   * @example
+   * vad.process(audioBlock); // reads the block, does not modify it
+   * processor.process(audioBlock); // enhances the block in-place
    */
   process(samples) {
     native.vadProcess(this._vad, samples);

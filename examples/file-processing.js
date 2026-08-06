@@ -26,7 +26,7 @@ Usage: node file-processing.js --input <file> [options]
 Options:
   -i, --input <file>       Input WAV file (required)
   -o, --output <file>      Output WAV file (default: input_enhanced.wav)
-  -m, --model <id>         Model ID (default: sparrow-l-48khz)
+  -m, --model <id>         Model ID (default: rook-l-48khz)
   -e, --enhancement <val>  Enhancement level 0.0-1.0 (default: 1.0)
   -h, --help               Show this help
 
@@ -126,10 +126,10 @@ try {
   process.exit(1);
 }
 
-// Get processor context and output delay
+// Get processor context and the delay applied to the audio
 const processorContext = processor.getContext();
-const outputDelay = processorContext.getOutputDelay();
-console.log("Output Delay:", outputDelay, "samples");
+const audioDelay = processorContext.getAudioDelay();
+console.log("Audio Delay:", audioDelay, "samples");
 
 
 
@@ -145,7 +145,7 @@ try {
 }
 
 // Calculate padding and total samples
-const paddedLength = samples.length + outputDelay;
+const paddedLength = samples.length + audioDelay;
 const totalBlocks = Math.ceil(paddedLength / blockSize);
 const totalPaddedSamples = totalBlocks * blockSize;
 
@@ -158,7 +158,7 @@ const paddedInput = new Float32Array(totalPaddedSamples);
 
 // Copy the original audio into the padded signal
 paddedInput.set(samples);
-// Remaining samples are already zero (padding at the end to flush output delay)
+// Remaining samples are already zero (padding at the end to flush the audio delay)
 
 // Allocate storage for the processed output
 const processedOutput = new Float32Array(totalPaddedSamples);
@@ -186,10 +186,10 @@ for (let blockIndex = 0; blockIndex < totalBlocks; blockIndex++) {
 }
 console.log();
 
-// Remove output delay from the beginning
+// Remove the audio delay from the beginning
 const finalOutput = processedOutput.slice(
-  outputDelay,
-  outputDelay + samples.length,
+  audioDelay,
+  audioDelay + samples.length,
 );
 
 // Write mono output file

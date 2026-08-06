@@ -65,9 +65,9 @@ impl ProcessorContext {
         Ok(cx.number(value as f64))
     }
 
-    pub fn get_output_delay(mut cx: FunctionContext) -> JsResult<JsNumber> {
+    pub fn get_audio_delay(mut cx: FunctionContext) -> JsResult<JsNumber> {
         let this = cx.argument::<JsBox<ProcessorContext>>(0)?;
-        let delay = this.inner.output_delay();
+        let delay = this.inner.audio_delay();
         Ok(cx.number(delay as f64))
     }
 
@@ -94,8 +94,8 @@ pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()>
         ProcessorContext::get_parameter,
     )?;
     cx.export_function(
-        "processorContextGetOutputDelay",
-        ProcessorContext::get_output_delay,
+        "processorContextGetAudioDelay",
+        ProcessorContext::get_audio_delay,
     )?;
     cx.export_function(
         "processorContextUpdateBearerToken",

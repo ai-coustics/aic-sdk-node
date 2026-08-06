@@ -22,7 +22,7 @@ const { Model, Processor } = require("@ai-coustics/aic-sdk");
 const licenseKey = process.env.AIC_SDK_LICENSE;
 
 // Download and load a model (or download manually at https://artifacts.ai-coustics.io/)
-const modelPath = Model.download("quail-vf-2.1-l-16khz", "./models");
+const modelPath = Model.download("quail-vf-2.2-s-16khz", "./models");
 const model = Model.fromFile(modelPath);
 
 // Get optimal configuration
@@ -63,7 +63,7 @@ const model = Model.fromFile("path/to/model.aicmodel");
 
 #### Download from CDN
 ```javascript
-const modelPath = Model.download("quail-vf-2.1-l-16khz", "./models");
+const modelPath = Model.download("quail-vf-2.2-s-16khz", "./models");
 const model = Model.fromFile(modelPath);
 ```
 
@@ -163,8 +163,8 @@ const { ProcessorParameter } = require("@ai-coustics/aic-sdk");
 // Get processor context
 const procCtx = processor.getContext();
 
-// Get output delay in samples
-const delay = procCtx.getOutputDelay();
+// Get the delay applied to the audio in samples
+const delay = procCtx.getAudioDelay();
 
 // Reset processor state (clears internal state)
 procCtx.reset();
@@ -180,11 +180,11 @@ console.log(`Enhancement level: ${level}`);
 
 ### Voice Activity Detection (VAD)
 
-Voice activity detection uses a separate `Vad` instance created from a dedicated VAD model
+Voice activity detection runs on its own `Vad` instance, created from a dedicated VAD model
 (for example `vad-2.1-xxs-16khz`). Enhancement models are rejected.
 
 ```javascript
-const { Model, Vad, VadParameter } = require("@ai-coustics/aic-sdk");
+const { Model, Vad } = require("@ai-coustics/aic-sdk");
 
 const vadModelPath = Model.download("vad-2.1-xxs-16khz", "./models");
 const vadModel = Model.fromFile(vadModelPath);
@@ -193,22 +193,52 @@ const blockSize = vadModel.getOptimalBlockSize(sampleRate);
 
 const vad = new Vad(vadModel, licenseKey);
 vad.initialize(sampleRate, blockSize, false);
+
+// Feed mono audio to the detector. The audio block is not modified.
+const audioBlock = new Float32Array(blockSize);
+vad.process(audioBlock);
+```
+
+When enhancement and VAD run together, feed the VAD the original input audio, not the processor's
+enhanced output. Run both on the same block instead of chaining them:
+
+```javascript
+const audioBlock = new Float32Array(blockSize);
+
+vad.process(audioBlock); // reads the block, does not modify it
+processor.process(audioBlock); // enhances the block in place
+```
+
+Enhancement is designed to change the signal, so running the VAD on its output means detecting
+speech in audio that no longer matches what the VAD model expects, and it stacks the processor's
+audio delay on top of the VAD's prediction delay.
+
+The VAD context provides thread-safe access to the prediction, the VAD parameters and its state.
+You can create multiple contexts from one VAD.
+
+```javascript
+const { VadParameter } = require("@ai-coustics/aic-sdk");
+
+// Get VAD context from the VAD
 const vadContext = vad.getContext();
 
-// Sensitivity is the probability threshold of the VAD model output.
+// Configure VAD parameters. Sensitivity is the probability threshold of the model output.
 vadContext.setParameter(VadParameter.Sensitivity, 0.5);
 vadContext.setParameter(VadParameter.SpeechHoldDuration, 0.05);
 vadContext.setParameter(VadParameter.MinimumSpeechDuration, 0.0);
 
-// Feed mono audio to the detector. The audio block is only read, never modified.
-const audioBlock = new Float32Array(blockSize);
-vad.process(audioBlock);
+// Get parameter values
+console.log(`VAD sensitivity: ${vadContext.getParameter(VadParameter.Sensitivity)}`);
 
-console.log(`Prediction delay: ${vadContext.getOutputDelay()} samples`);
+// How many samples the prediction lags behind the input. This delay is not applied to the
+// audio, Vad.process() leaves the buffer untouched.
+console.log(`Prediction delay: ${vadContext.getPredictionDelay()} samples`);
+
+// Check for speech (after processing audio through the VAD)
 console.log(`Speech detected: ${vadContext.isSpeechDetected()}`);
 console.log(`Raw probability: ${vadContext.rawVadProbability()}`);
 
-// Clear the prediction and internal state when a stream is interrupted.
+// Clear the prediction and all internal state, e.g. when the stream is interrupted
 vadContext.reset();
 ```
 
@@ -274,8 +304,19 @@ analyzer.reset();
 
 ## Examples
 
-See [`basic.js`](examples/basic.js) for enhancement and [`vad.js`](examples/vad.js) for
-voice activity detection.
+See the example files for complete working examples:
+
+- [`examples/enhancement.js`](examples/enhancement.js) - Basic usage example
+- [`examples/vad.js`](examples/vad.js) - Voice activity detection with a dedicated VAD model
+- [`examples/analysis.js`](examples/analysis.js) - Audio analysis with `FileAnalyzer` and `analyzerPair`
+- [`examples/file-processing.js`](examples/file-processing.js) - Enhance a WAV file block by block
+
+Run examples with:
+
+```bash
+export AIC_SDK_LICENSE="your_license_key_here"
+node examples/enhancement.js
+```
 
 ## Documentation
 

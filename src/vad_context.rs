@@ -53,9 +53,9 @@ impl VadContext {
         Ok(cx.number(probability as f64))
     }
 
-    pub fn get_output_delay(mut cx: FunctionContext) -> JsResult<JsNumber> {
+    pub fn get_prediction_delay(mut cx: FunctionContext) -> JsResult<JsNumber> {
         let this = cx.argument::<JsBox<VadContext>>(0)?;
-        Ok(cx.number(this.inner.output_delay() as f64))
+        Ok(cx.number(this.inner.prediction_delay() as f64))
     }
 
     pub fn update_bearer_token(mut cx: FunctionContext) -> JsResult<JsUndefined> {
@@ -105,7 +105,10 @@ pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()>
     )?;
     cx.export_function("vadContextSetParameter", VadContext::set_parameter)?;
     cx.export_function("vadContextGetParameter", VadContext::get_parameter)?;
-    cx.export_function("vadContextGetOutputDelay", VadContext::get_output_delay)?;
+    cx.export_function(
+        "vadContextGetPredictionDelay",
+        VadContext::get_prediction_delay,
+    )?;
     cx.export_function(
         "vadContextUpdateBearerToken",
         VadContext::update_bearer_token,

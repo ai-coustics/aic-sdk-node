@@ -1,6 +1,6 @@
 # Examples
 
-## Basic Usage
+## Usage
 
 Build locally:
 
@@ -9,11 +9,11 @@ npm install
 npm run build
 ```
 
-Run the basic example:
+Run the enhancement example:
 
 ```bash
 export AIC_SDK_LICENSE="your-license-key"
-node examples/basic.js
+node examples/enhancement.js
 ```
 
 Run the voice activity detection example:

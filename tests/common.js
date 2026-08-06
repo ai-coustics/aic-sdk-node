@@ -12,16 +12,27 @@ const TEST_AUDIO_ENHANCED_PATH = path.join(
 );
 const VAD_RESULTS_PATH = path.join(__dirname, "data", "vad_results.json");
 
+/** Enhancement model used for the audio enhancement tests. */
+const ENHANCEMENT_MODEL_ID = "quail-vf-2.2-s-16khz";
 /**
- * Finds an existing model file in the target directory whose name starts with a prefix.
+ * Dedicated VAD model used for the voice activity detection tests. Enhancement models cannot
+ * be used for voice activity detection.
+ */
+const VAD_MODEL_ID = "vad-2.1-xxs-16khz";
+/** Analysis model used for the analyzer tests. */
+const ANALYSIS_MODEL_ID = "tyto-l-16khz";
+
+/**
+ * Finds an existing model file in the target directory that belongs to a model ID.
  * @param {string} targetDir - Directory to search in
- * @param {string} prefix - File name prefix to match (e.g. "quail_vf")
+ * @param {string} modelId - Model ID whose file name prefix to match
  * @returns {string|null} - Path to found model or null
  */
-function findExistingModel(targetDir, prefix) {
+function findExistingModel(targetDir, modelId) {
   if (!fs.existsSync(targetDir)) {
     return null;
   }
+  const prefix = modelId.replace(/[-.]/g, "_");
   const entries = fs.readdirSync(targetDir);
   for (const entry of entries) {
     if (entry.endsWith(".aicmodel") && entry.startsWith(prefix)) {
@@ -32,13 +43,14 @@ function findExistingModel(targetDir, prefix) {
 }
 
 /**
- * Gets the path to the test model, downloading if necessary.
+ * Downloads a model into the package's target directory, reusing an already downloaded file.
+ * @param {string} modelId - Model ID to resolve
  * @returns {string} - Path to the model file
  */
-function getTestModelPath() {
+function getModelPath(modelId) {
   const targetDir = path.join(__dirname, "..", "target");
 
-  const existing = findExistingModel(targetDir, "quail_vf");
+  const existing = findExistingModel(targetDir, modelId);
   if (existing) {
     return existing;
   }
@@ -47,7 +59,15 @@ function getTestModelPath() {
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  return Model.download("quail-vf-2.1-s-16khz", targetDir);
+  return Model.download(modelId, targetDir);
+}
+
+/**
+ * Gets the path to the enhancement test model, downloading if necessary.
+ * @returns {string} - Path to the model file
+ */
+function getTestModelPath() {
+  return getModelPath(ENHANCEMENT_MODEL_ID);
 }
 
 /**
@@ -55,18 +75,7 @@ function getTestModelPath() {
  * @returns {string} - Path to the VAD model file
  */
 function getVadModelPath() {
-  const targetDir = path.join(__dirname, "..", "target");
-
-  const existing = findExistingModel(targetDir, "vad_2_1_xxs_16khz");
-  if (existing) {
-    return existing;
-  }
-
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-
-  return Model.download("vad-2.1-xxs-16khz", targetDir);
+  return getModelPath(VAD_MODEL_ID);
 }
 
 /**
@@ -74,18 +83,7 @@ function getVadModelPath() {
  * @returns {string} - Path to the analysis model file
  */
 function getAnalysisModelPath() {
-  const targetDir = path.join(__dirname, "..", "target");
-
-  const existing = findExistingModel(targetDir, "tyto");
-  if (existing) {
-    return existing;
-  }
-
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-
-  return Model.download("tyto-l-16khz", targetDir);
+  return getModelPath(ANALYSIS_MODEL_ID);
 }
 
 /**

@@ -119,7 +119,7 @@ jobs:
       - name: Run tests and examples
         run: |
           npm test
-          node examples/basic.js
+          node examples/enhancement.js
           node examples/vad.js
           node examples/file-processing.js --input ./tests/data/test_signal.wav --output ./tmp.wav
         env:

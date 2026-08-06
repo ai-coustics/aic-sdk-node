@@ -16,10 +16,12 @@ if (!process.env.AIC_SDK_LICENSE) {
 console.log("SDK Version:", getVersion());
 console.log("Compatible Model Version:", getCompatibleModelVersion());
 
-// Download and load a model
+// Download and load an enhancement model. Enhancement models improve speech quality; use
+// examples/vad.js for voice activity detection with a dedicated VAD model.
+// Select a model id at https://artifacts.ai-coustics.io/
 let model;
 try {
-  const modelPath = Model.download("quail-vf-2.1-l-16khz", "/tmp/aic-models");
+  const modelPath = Model.download("quail-vf-2.2-s-16khz", "/tmp/aic-models");
   console.log("Model downloaded to:", modelPath);
   model = Model.fromFile(modelPath);
   console.log("Model ID:", model.getId());
@@ -54,7 +56,9 @@ try {
 
 // Get processor context for parameter control
 const processorContext = processor.getContext();
-console.log("Output Delay:", processorContext.getOutputDelay(), "samples");
+
+// Get the delay applied to the audio
+console.log("Audio Delay:", processorContext.getAudioDelay(), "samples");
 
 // Set enhancement parameters
 try {
@@ -87,4 +91,9 @@ try {
 // Reset processor state
 processorContext.reset();
 
-console.log("\nExample completed successfully");
+// End the telemetry session on demand instead of waiting for the processor to be destroyed.
+// The processor can no longer process audio after this call.
+processor.terminateSession();
+console.log("Telemetry session terminated");
+
+console.log("\nEnhancement example completed successfully");

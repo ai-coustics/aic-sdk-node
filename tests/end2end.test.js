@@ -81,7 +81,10 @@ function testProcessBlocksWithVad() {
   vad.initialize(audio.sampleRate, blockSize, false);
   const vadContext = vad.getContext();
 
-  assert(vadContext.getOutputDelay() > 0, "VAD should report a prediction delay");
+  assert(
+    vadContext.getPredictionDelay() > 0,
+    "VAD should report a prediction delay",
+  );
 
   const samples = new Float32Array(audio.samples);
   const speechDetectedResults = [];
@@ -176,7 +179,7 @@ function testVadParameters() {
   );
   assert.throws(
     () => vadContext.setParameter(VadParameter.Sensitivity, 7.0),
-    /out of range/,
+    /outside the acceptable range/,
   );
 
   // This succeeds for JWT licenses and returns TokenUpdateUnsupported for other license types.
@@ -197,7 +200,7 @@ function testVadRejectsEnhancementModel() {
   const model = Model.fromFile(getTestModelPath());
   assert.throws(
     () => new Vad(model, licenseKey()),
-    /not supported by this operation/,
+    /not supported by the requested API/,
   );
   console.log("  PASSED");
 }
@@ -318,7 +321,7 @@ function testAnalyzerRejectsNonAnalysisModel() {
 
   assert.throws(
     () => analyzerPair(model, licenseKey()),
-    /not supported by this operation/,
+    /not supported by the requested API/,
     "Enhancement model should be rejected for analysis",
   );
   console.log("  PASSED");
