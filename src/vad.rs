@@ -1,25 +1,27 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use neon::{
     prelude::{Context, FunctionContext},
     result::{JsResult, NeonResult},
-    types::{Finalize, JsBoolean, JsBox, JsNumber, JsTypedArray, JsUndefined, buffer::TypedArray},
+    types::{Finalize, JsBox, JsString, JsTypedArray, JsUndefined, buffer::TypedArray},
 };
 
-use crate::{model::Model, processor::parse_otel_config, vad_context::VadContext};
+use crate::{
+    model::Model,
+    util::{parse_otel_config, parse_processor_config},
+    vad_context::VadContext,
+};
 
 pub struct Vad {
-    inner: Arc<Mutex<aic_sdk::Vad<'static>>>,
+    inner: Mutex<aic_sdk::Vad<'static>>,
 }
 
-impl Finalize for Vad {
-    fn finalize<'a, C: Context<'a>>(self, _: &mut C) {}
-}
+impl Finalize for Vad {}
 
 impl Vad {
     pub fn new(mut cx: FunctionContext) -> JsResult<JsBox<Vad>> {
         let model = cx.argument::<JsBox<Model>>(0)?;
-        let license_key = cx.argument::<neon::types::JsString>(1)?.value(&mut cx);
+        let license_key = cx.argument::<JsString>(1)?.value(&mut cx);
         let otel_config = match cx.argument_opt(2) {
             Some(value) => parse_otel_config(&mut cx, value)?,
             None => None,
@@ -39,21 +41,13 @@ impl Vad {
         .or_else(|e| cx.throw_error(e.to_string()))?;
 
         Ok(cx.boxed(Vad {
-            inner: Arc::new(Mutex::new(vad)),
+            inner: Mutex::new(vad),
         }))
     }
 
     pub fn initialize(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<Vad>>(0)?;
-        let sample_rate = cx.argument::<JsNumber>(1)?.value(&mut cx) as u32;
-        let block_size = cx.argument::<JsNumber>(2)?.value(&mut cx) as usize;
-        let variable_block_size = cx.argument::<JsBoolean>(3)?.value(&mut cx);
-
-        let config = aic_sdk::ProcessorConfig {
-            sample_rate,
-            block_size,
-            variable_block_size,
-        };
+        let config = parse_processor_config(&mut cx, 1)?;
 
         this.inner
             .lock()

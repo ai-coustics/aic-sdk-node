@@ -5,12 +5,13 @@ use neon::{
     prelude::{Context, FunctionContext},
     result::{JsResult, NeonResult},
     types::{
-        Finalize, JsArray, JsBoolean, JsBox, JsNull, JsNumber, JsObject, JsString, JsTypedArray,
-        JsUndefined, JsValue, buffer::TypedArray,
+        Finalize, JsArray, JsBox, JsNull, JsNumber, JsObject, JsString, JsTypedArray, JsUndefined,
+        JsValue, buffer::TypedArray,
     },
 };
 
 use crate::model::Model;
+use crate::util::parse_processor_config;
 
 /// Builds a JS object with the camelCase analysis-result fields from an SDK result.
 fn analysis_result_to_object<'a, C: Context<'a>>(
@@ -41,9 +42,7 @@ pub struct Collector {
     inner: Mutex<aic_sdk::Collector>,
 }
 
-impl Finalize for Collector {
-    fn finalize<'a, C: Context<'a>>(self, _: &mut C) {}
-}
+impl Finalize for Collector {}
 
 /// Runs an analysis model over the audio collected by a [`Collector`].
 ///
@@ -52,9 +51,7 @@ pub struct Analyzer {
     inner: Mutex<aic_sdk::Analyzer<'static>>,
 }
 
-impl Finalize for Analyzer {
-    fn finalize<'a, C: Context<'a>>(self, _: &mut C) {}
-}
+impl Finalize for Analyzer {}
 
 /// Creates a collector/analyzer pair for non-real-time analysis.
 ///
@@ -88,17 +85,9 @@ pub fn analyzer_pair(mut cx: FunctionContext) -> JsResult<JsObject> {
 impl Collector {
     pub fn initialize(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<Collector>>(0)?;
-        let sample_rate = cx.argument::<JsNumber>(1)?.value(&mut cx) as u32;
-        let block_size = cx.argument::<JsNumber>(2)?.value(&mut cx) as usize;
-        let variable_block_size = cx.argument::<JsBoolean>(3)?.value(&mut cx);
+        let config = parse_processor_config(&mut cx, 1)?;
 
         let mut collector = this.inner.lock().unwrap();
-
-        let config = aic_sdk::ProcessorConfig {
-            sample_rate,
-            block_size,
-            variable_block_size,
-        };
 
         collector
             .initialize(&config)
@@ -176,9 +165,7 @@ pub struct FileAnalyzer {
     inner: Mutex<aic_sdk::FileAnalyzer<'static, 'static>>,
 }
 
-impl Finalize for FileAnalyzer {
-    fn finalize<'a, C: Context<'a>>(self, _: &mut C) {}
-}
+impl Finalize for FileAnalyzer {}
 
 impl FileAnalyzer {
     pub fn new(mut cx: FunctionContext) -> JsResult<JsBox<Self>> {

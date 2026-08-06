@@ -754,7 +754,7 @@ class Model {
    * @returns {string} The model ID string.
    */
   getId() {
-    return native.modelId(this._model);
+    return native.modelGetId(this._model);
   }
 
   /**

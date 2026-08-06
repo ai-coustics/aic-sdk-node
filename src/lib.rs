@@ -4,6 +4,7 @@ mod analyzer;
 mod model;
 mod processor;
 mod processor_context;
+mod util;
 mod vad;
 mod vad_context;
 

@@ -8,9 +8,7 @@ pub struct Model {
     pub(crate) inner: aic_sdk::Model<'static>,
 }
 
-impl Finalize for Model {
-    fn finalize<'a, C: neon::prelude::Context<'a>>(self, _: &mut C) {}
-}
+impl Finalize for Model {}
 
 impl Model {
     pub fn from_file(mut cx: FunctionContext) -> JsResult<JsBox<Model>> {
@@ -50,7 +48,7 @@ impl Model {
 pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()> {
     cx.export_function("modelFromFile", Model::from_file)?;
     cx.export_function("modelDownload", Model::download)?;
-    cx.export_function("modelId", Model::get_id)?;
+    cx.export_function("modelGetId", Model::get_id)?;
     cx.export_function("modelGetOptimalSampleRate", Model::get_optimal_sample_rate)?;
     cx.export_function("modelGetOptimalBlockSize", Model::get_optimal_block_size)?;
 

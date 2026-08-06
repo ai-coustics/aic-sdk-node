@@ -26,9 +26,7 @@ pub struct ProcessorContext {
     pub(crate) inner: aic_sdk::ProcessorContext,
 }
 
-impl Finalize for ProcessorContext {
-    fn finalize<'a, C: neon::prelude::Context<'a>>(self, _: &mut C) {}
-}
+impl Finalize for ProcessorContext {}
 
 impl ProcessorContext {
     pub fn reset(mut cx: FunctionContext) -> JsResult<JsUndefined> {

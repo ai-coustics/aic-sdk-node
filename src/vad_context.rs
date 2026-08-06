@@ -28,9 +28,7 @@ pub struct VadContext {
     pub(crate) inner: aic_sdk::VadContext,
 }
 
-impl Finalize for VadContext {
-    fn finalize<'a, C: neon::prelude::Context<'a>>(self, _: &mut C) {}
-}
+impl Finalize for VadContext {}
 
 impl VadContext {
     pub fn reset(mut cx: FunctionContext) -> JsResult<JsUndefined> {

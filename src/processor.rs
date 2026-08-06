@@ -1,66 +1,20 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use neon::{
-    handle::Handle,
-    object::Object,
     prelude::{Context, FunctionContext},
     result::{JsResult, NeonResult},
-    types::{
-        Finalize, JsBoolean, JsBox, JsNull, JsNumber, JsObject, JsString, JsTypedArray,
-        JsUndefined, JsValue, buffer::TypedArray,
-    },
+    types::{Finalize, JsBox, JsString, JsTypedArray, JsUndefined, buffer::TypedArray},
 };
 
 use crate::model::Model;
 use crate::processor_context::ProcessorContext;
+use crate::util::{parse_otel_config, parse_processor_config};
 
 pub struct Processor {
-    inner: Arc<Mutex<aic_sdk::Processor<'static>>>,
+    inner: Mutex<aic_sdk::Processor<'static>>,
 }
 
-impl Finalize for Processor {
-    fn finalize<'a, C: neon::prelude::Context<'a>>(self, _: &mut C) {}
-}
-
-pub(crate) fn parse_otel_config(
-    cx: &mut FunctionContext,
-    value: Handle<JsValue>,
-) -> NeonResult<Option<aic_sdk::OtelConfig>> {
-    if value.is_a::<JsUndefined, _>(cx) || value.is_a::<JsNull, _>(cx) {
-        return Ok(None);
-    }
-
-    let object = value.downcast_or_throw::<JsObject, _>(cx)?;
-    let enable = object.get::<JsBoolean, _, _>(cx, "enable")?.value(cx);
-    let session_id_value = object.get::<JsValue, _, _>(cx, "sessionId")?;
-    let session_id =
-        if session_id_value.is_a::<JsUndefined, _>(cx) || session_id_value.is_a::<JsNull, _>(cx) {
-            None
-        } else {
-            Some(
-                session_id_value
-                    .downcast_or_throw::<JsString, _>(cx)?
-                    .value(cx),
-            )
-        };
-
-    let export_interval_value = object.get::<JsValue, _, _>(cx, "exportIntervalMs")?;
-    let export_interval_ms = if export_interval_value.is_a::<JsUndefined, _>(cx)
-        || export_interval_value.is_a::<JsNull, _>(cx)
-    {
-        0
-    } else {
-        export_interval_value
-            .downcast_or_throw::<JsNumber, _>(cx)?
-            .value(cx) as u32
-    };
-
-    Ok(Some(aic_sdk::OtelConfig {
-        enable,
-        session_id,
-        export_interval_ms,
-    }))
-}
+impl Finalize for Processor {}
 
 impl Processor {
     pub fn new(mut cx: FunctionContext) -> JsResult<JsBox<Processor>> {
@@ -85,23 +39,15 @@ impl Processor {
         .or_else(|e| cx.throw_error(e.to_string()))?;
 
         Ok(cx.boxed(Processor {
-            inner: Arc::new(Mutex::new(processor)),
+            inner: Mutex::new(processor),
         }))
     }
 
     pub fn initialize(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let this = cx.argument::<JsBox<Processor>>(0)?;
-        let sample_rate = cx.argument::<JsNumber>(1)?.value(&mut cx) as u32;
-        let block_size = cx.argument::<JsNumber>(2)?.value(&mut cx) as usize;
-        let variable_block_size = cx.argument::<JsBoolean>(3)?.value(&mut cx);
+        let config = parse_processor_config(&mut cx, 1)?;
 
         let mut processor = this.inner.lock().unwrap();
-
-        let config = aic_sdk::ProcessorConfig {
-            sample_rate,
-            block_size,
-            variable_block_size,
-        };
 
         processor
             .initialize(&config)
