@@ -15,8 +15,8 @@ if (!licenseKey) {
   process.exit(1);
 }
 
-console.log("SDK Version:", getVersion());
-console.log("Compatible Model Version:", getCompatibleModelVersion());
+console.log("SDK version:", getVersion());
+console.log("Compatible model version:", getCompatibleModelVersion());
 
 try {
   // Voice activity detection requires a dedicated VAD model. Enhancement models are rejected
@@ -33,15 +33,15 @@ try {
   vad.initialize(sampleRate, blockSize, false);
 
   console.log("Model ID:", model.getId());
-  console.log("Sample Rate:", sampleRate);
-  console.log("Block Size:", blockSize);
+  console.log("Sample rate:", sampleRate);
+  console.log("Block size:", blockSize);
 
   // Get VAD context for thread safe interaction with the prediction and its parameters
   const vadContext = vad.getContext();
 
   // How far the prediction lags behind the input. This delay is not applied to the audio,
   // Vad.process() leaves the buffer untouched.
-  console.log("Prediction Delay:", vadContext.getPredictionDelay(), "samples");
+  console.log("Prediction delay:", vadContext.getPredictionDelay(), "samples");
 
   // Configure the detector. Sensitivity is the probability threshold of the model output.
   vadContext.setParameter(VadParameter.SpeechHoldDuration, 0.08);
@@ -49,7 +49,7 @@ try {
   vadContext.setParameter(VadParameter.MinimumSpeechDuration, 0.0);
 
   console.log(
-    "Speech Hold Duration:",
+    "Speech hold duration:",
     vadContext.getParameter(VadParameter.SpeechHoldDuration),
   );
   console.log(
@@ -65,8 +65,8 @@ try {
   const audioBlock = new Float32Array(blockSize);
   vad.process(audioBlock);
 
-  console.log("Speech Detected:", vadContext.isSpeechDetected());
-  console.log("Raw VAD Probability:", vadContext.rawVadProbability());
+  console.log("Speech detected:", vadContext.isSpeechDetected());
+  console.log("Raw VAD probability:", vadContext.rawVadProbability());
 
   // Clear the prediction and all internal state, e.g. when the stream is interrupted
   vadContext.reset();

@@ -53,11 +53,11 @@ if (!outputFile) {
 // Check for license key
 if (!process.env.AIC_SDK_LICENSE) {
   console.error("Error: AIC_SDK_LICENSE environment variable not set");
-  console.error("Get your license key from https://developers.ai-coustics.io");
+  console.error("Get your license key from https://developers.ai-coustics.com");
   process.exit(1);
 }
 
-console.log("SDK Version:", getVersion());
+console.log("SDK version:", getVersion());
 console.log("Input file:", inputFile);
 console.log("Output file:", outputFile);
 
@@ -113,8 +113,8 @@ try {
 // Get the optimal block size for the file's sample rate
 const blockSize = model.getOptimalBlockSize(sampleRate);
 
-console.log("Sample Rate:", sampleRate);
-console.log("Block Size:", blockSize, "samples");
+console.log("Sample rate:", sampleRate);
+console.log("Block size:", blockSize, "samples");
 
 // Create processor
 let processor;
@@ -129,9 +129,7 @@ try {
 // Get processor context and the delay applied to the audio
 const processorContext = processor.getContext();
 const audioDelay = processorContext.getAudioDelay();
-console.log("Audio Delay:", audioDelay, "samples");
-
-
+console.log("Audio delay:", audioDelay, "samples");
 
 // Set enhancement parameters
 try {
@@ -139,7 +137,7 @@ try {
     ProcessorParameter.EnhancementLevel,
     enhancementLevel,
   );
-  console.log("Enhancement Level:", enhancementLevel);
+  console.log("Enhancement level:", enhancementLevel);
 } catch (error) {
   console.error("Warning: Failed to set parameters:", error.message);
 }

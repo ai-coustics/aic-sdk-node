@@ -3,13 +3,13 @@ const { Model, FileAnalyzer, analyzerPair, getVersion } = require("..");
 // Check for license key
 if (!process.env.AIC_SDK_LICENSE) {
   console.error("Error: AIC_SDK_LICENSE environment variable not set");
-  console.error("Get your license key from https://developers.ai-coustics.io");
+  console.error("Get your license key from https://developers.ai-coustics.com");
   process.exit(1);
 }
 
 const licenseKey = process.env.AIC_SDK_LICENSE;
 
-console.log("SDK Version:", getVersion());
+console.log("SDK version:", getVersion());
 
 // Download and load an analysis model. Analysis models score audio quality
 // instead of enhancing it.

@@ -37,4 +37,4 @@ export AIC_SDK_LICENSE="your-license-key"
 node examples/analysis.js
 ```
 
-Get your license key from [ai-coustics Developer Portal](https://developers.ai-coustics.io).
+Get your license key from [ai-coustics Developer Portal](https://developers.ai-coustics.com).

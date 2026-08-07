@@ -34,8 +34,8 @@ try {
 const sampleRate = model.getOptimalSampleRate();
 const blockSize = model.getOptimalBlockSize(sampleRate);
 
-console.log("Sample Rate:", sampleRate);
-console.log("Block Size:", blockSize);
+console.log("Sample rate:", sampleRate);
+console.log("Block size:", blockSize);
 
 // Create processor
 let processor;
