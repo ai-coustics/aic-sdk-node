@@ -13,7 +13,7 @@ if (!process.env.AIC_SDK_LICENSE) {
   process.exit(1);
 }
 
-console.log("SDK Version:", getVersion());
+console.log("SDK version:", getVersion());
 console.log("Compatible Model Version:", getCompatibleModelVersion());
 
 // Download and load an enhancement model. Enhancement models improve speech quality; use
