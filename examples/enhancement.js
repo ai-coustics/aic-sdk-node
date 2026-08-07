@@ -18,7 +18,7 @@ console.log("Compatible Model Version:", getCompatibleModelVersion());
 
 // Download and load an enhancement model. Enhancement models improve speech quality; use
 // examples/vad.js for voice activity detection with a dedicated VAD model.
-// Select a model id at https://artifacts.ai-coustics.io/
+// Select a model at https://artifacts.ai-coustics.io/
 let model;
 try {
   const modelPath = Model.download("quail-vf-2.2-s-16khz", "/tmp/aic-models");
