@@ -28,11 +28,17 @@ pub struct VadContext {
     pub(crate) inner: aic_sdk::VadContext,
 }
 
-impl Finalize for VadContext {
-    fn finalize<'a, C: neon::prelude::Context<'a>>(self, _: &mut C) {}
-}
+impl Finalize for VadContext {}
 
 impl VadContext {
+    pub fn reset(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+        let this = cx.argument::<JsBox<VadContext>>(0)?;
+        this.inner
+            .reset()
+            .or_else(|e| cx.throw_error(e.to_string()))?;
+        Ok(cx.undefined())
+    }
+
     pub fn is_speech_detected(mut cx: FunctionContext) -> JsResult<JsBoolean> {
         let this = cx.argument::<JsBox<VadContext>>(0)?;
         let detected = this.inner.is_speech_detected();
@@ -43,6 +49,22 @@ impl VadContext {
         let this = cx.argument::<JsBox<VadContext>>(0)?;
         let probability = this.inner.raw_vad_probability();
         Ok(cx.number(probability as f64))
+    }
+
+    pub fn get_prediction_delay(mut cx: FunctionContext) -> JsResult<JsNumber> {
+        let this = cx.argument::<JsBox<VadContext>>(0)?;
+        Ok(cx.number(this.inner.prediction_delay() as f64))
+    }
+
+    pub fn update_bearer_token(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+        let this = cx.argument::<JsBox<VadContext>>(0)?;
+        let token = cx.argument::<neon::types::JsString>(1)?.value(&mut cx);
+
+        this.inner
+            .update_bearer_token(&token)
+            .or_else(|e| cx.throw_error(e.to_string()))?;
+
+        Ok(cx.undefined())
     }
 
     pub fn set_parameter(mut cx: FunctionContext) -> JsResult<JsUndefined> {
@@ -73,6 +95,7 @@ impl VadContext {
 }
 
 pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()> {
+    cx.export_function("vadContextReset", VadContext::reset)?;
     cx.export_function("vadContextIsSpeechDetected", VadContext::is_speech_detected)?;
     cx.export_function(
         "vadContextRawVadProbability",
@@ -80,6 +103,14 @@ pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()>
     )?;
     cx.export_function("vadContextSetParameter", VadContext::set_parameter)?;
     cx.export_function("vadContextGetParameter", VadContext::get_parameter)?;
+    cx.export_function(
+        "vadContextGetPredictionDelay",
+        VadContext::get_prediction_delay,
+    )?;
+    cx.export_function(
+        "vadContextUpdateBearerToken",
+        VadContext::update_bearer_token,
+    )?;
 
     // Export VAD parameter constants
     let speech_hold_duration = cx.number(VAD_PARAM_SPEECH_HOLD_DURATION);

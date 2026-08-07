@@ -26,7 +26,7 @@ Usage: node file-processing.js --input <file> [options]
 Options:
   -i, --input <file>       Input WAV file (required)
   -o, --output <file>      Output WAV file (default: input_enhanced.wav)
-  -m, --model <id>         Model ID (default: sparrow-l-48khz)
+  -m, --model <id>         Model ID (default: rook-l-48khz)
   -e, --enhancement <val>  Enhancement level 0.0-1.0 (default: 1.0)
   -h, --help               Show this help
 
@@ -53,36 +53,45 @@ if (!outputFile) {
 // Check for license key
 if (!process.env.AIC_SDK_LICENSE) {
   console.error("Error: AIC_SDK_LICENSE environment variable not set");
-  console.error("Get your license key from https://developers.ai-coustics.io");
+  console.error("Get your license key from https://developers.ai-coustics.com");
   process.exit(1);
 }
 
-console.log("SDK Version:", getVersion());
+console.log("SDK version:", getVersion());
 console.log("Input file:", inputFile);
 console.log("Output file:", outputFile);
 
 // Read input file
-let wav;
 let samples;
 let sampleRate;
-let numChannels;
 
 try {
-  const buffer = fs.readFileSync(inputFile);
-  wav = new WaveFile(buffer);
+  const fileBytes = fs.readFileSync(inputFile);
+  const wav = new WaveFile(fileBytes);
   sampleRate = wav.fmt.sampleRate;
-  numChannels = wav.fmt.numChannels;
+  const numChannels = wav.fmt.numChannels;
 
   // Convert to 32-bit float samples (normalized to -1.0 to 1.0)
   wav.toBitDepth("32f");
-  const rawSamples = wav.getSamples(true, Float32Array);
+  const interleaved = wav.getSamples(true, Float32Array);
 
-  // getSamples with interleave=true returns interleaved samples
-  samples = rawSamples;
+  // The SDK processes mono audio. Down-mix multi-channel input by averaging channels.
+  if (numChannels === 1) {
+    samples = interleaved;
+  } else {
+    const frames = interleaved.length / numChannels;
+    samples = new Float32Array(frames);
+    for (let frame = 0; frame < frames; frame++) {
+      let sum = 0;
+      for (let ch = 0; ch < numChannels; ch++) {
+        sum += interleaved[frame * numChannels + ch];
+      }
+      samples[frame] = sum / numChannels;
+    }
+  }
 
-  const samplesPerChannel = samples.length / numChannels;
   console.log(
-    `Loaded: ${sampleRate}Hz, ${numChannels} channels, ${samplesPerChannel} samples`,
+    `Loaded: ${sampleRate}Hz, ${numChannels} channel(s) -> mono, ${samples.length} samples`,
   );
 } catch (error) {
   console.error("Failed to read input file:", error.message);
@@ -101,30 +110,26 @@ try {
   process.exit(1);
 }
 
-// Get optimal num frames for the file's sample rate
-const numFrames = model.getOptimalNumFrames(sampleRate);
+// Get the optimal block size for the file's sample rate
+const blockSize = model.getOptimalBlockSize(sampleRate);
 
-console.log("Sample Rate:", sampleRate);
-console.log("Chunk Size:", numFrames, "samples");
+console.log("Sample rate:", sampleRate);
+console.log("Block size:", blockSize, "samples");
 
 // Create processor
 let processor;
 try {
   processor = new Processor(model, process.env.AIC_SDK_LICENSE);
-  processor.initialize(sampleRate, numChannels, numFrames, false);
+  processor.initialize(sampleRate, blockSize, false);
 } catch (error) {
   console.error("Failed to create processor:", error.message);
   process.exit(1);
 }
 
-// Get processor context and output delay
-const processorContext = processor.getProcessorContext();
-const outputDelay = processorContext.getOutputDelay();
-console.log("Output Delay:", outputDelay, "samples");
-
-// Get VAD context for speech detection
-const vadContext = processor.getVadContext();
-console.log("VAD initialized");
+// Get processor context and the delay applied to the audio
+const processorContext = processor.getContext();
+const audioDelay = processorContext.getAudioDelay();
+console.log("Audio delay:", audioDelay, "samples");
 
 // Set enhancement parameters
 try {
@@ -132,91 +137,63 @@ try {
     ProcessorParameter.EnhancementLevel,
     enhancementLevel,
   );
-  console.log("Enhancement Level:", enhancementLevel);
+  console.log("Enhancement level:", enhancementLevel);
 } catch (error) {
   console.error("Warning: Failed to set parameters:", error.message);
 }
 
 // Calculate padding and total samples
-const samplesPerChannel = samples.length / numChannels;
-const paddedLength = samplesPerChannel + outputDelay;
-const totalChunks = Math.ceil(paddedLength / numFrames);
-const totalPaddedSamples = totalChunks * numFrames;
+const paddedLength = samples.length + audioDelay;
+const totalBlocks = Math.ceil(paddedLength / blockSize);
+const totalPaddedSamples = totalBlocks * blockSize;
 
-console.log("Original samples per channel:", samplesPerChannel);
-console.log("Padded samples per channel:", totalPaddedSamples);
-console.log("Total chunks to process:", totalChunks);
+console.log("Original samples:", samples.length);
+console.log("Padded samples:", totalPaddedSamples);
+console.log("Total blocks to process:", totalBlocks);
 
-// Create padded input buffer (interleaved format)
-const paddedInput = new Float32Array(totalPaddedSamples * numChannels);
+// Create the padded input signal
+const paddedInput = new Float32Array(totalPaddedSamples);
 
-// Copy original audio to padded buffer
+// Copy the original audio into the padded signal
 paddedInput.set(samples);
-// Remaining samples are already zero (padding at the end to flush output delay)
+// Remaining samples are already zero (padding at the end to flush the audio delay)
 
-// Create output buffer
-const outputBuffer = new Float32Array(totalPaddedSamples * numChannels);
+// Allocate storage for the processed output
+const processedOutput = new Float32Array(totalPaddedSamples);
 
-// Process in chunks
+// Process one audio block at a time
 console.log("Processing...");
-const chunkBuffer = new Float32Array(numFrames * numChannels);
+const audioBlock = new Float32Array(blockSize);
 
-for (let chunk = 0; chunk < totalChunks; chunk++) {
-  const inputOffset = chunk * numFrames * numChannels;
-  const outputOffset = chunk * numFrames * numChannels;
+for (let blockIndex = 0; blockIndex < totalBlocks; blockIndex++) {
+  const offset = blockIndex * blockSize;
 
-  // Copy chunk from padded input
-  for (let i = 0; i < chunkBuffer.length; i++) {
-    chunkBuffer[i] = paddedInput[inputOffset + i] || 0;
-  }
+  // Copy the next block from the padded input
+  audioBlock.set(paddedInput.subarray(offset, offset + blockSize));
 
-  // Process chunk (in-place)
+  // Process the audio block in-place
   try {
-    processor.processInterleaved(chunkBuffer);
+    processor.process(audioBlock);
   } catch (error) {
-    console.error(`Failed to process chunk ${chunk}:`, error.message);
+    console.error(`Failed to process block ${blockIndex}:`, error.message);
     process.exit(1);
   }
 
-  // Check speech detection after processing
-  const speechDetected = vadContext.isSpeechDetected();
-  const timeInSeconds = (chunk * numFrames) / sampleRate;
-  console.log(
-    `Chunk ${chunk + 1}/${totalChunks} [${timeInSeconds.toFixed(2)}s]: Speech detected: ${speechDetected}`,
-  );
-
-  // Copy processed chunk to output
-  outputBuffer.set(chunkBuffer, outputOffset);
+  // Copy the processed block to the output signal
+  processedOutput.set(audioBlock, offset);
 }
 console.log();
 
-// Remove output delay from the beginning
-const delayOffset = outputDelay * numChannels;
-const finalLength = samplesPerChannel * numChannels;
-const finalOutput = outputBuffer.slice(delayOffset, delayOffset + finalLength);
+// Remove the audio delay from the beginning
+const finalOutput = processedOutput.slice(
+  audioDelay,
+  audioDelay + samples.length,
+);
 
-// Write output file
+// Write mono output file
 try {
   const outWav = new WaveFile();
-
-  // Create WAV with interleaved samples
-  // fromScratch expects: numChannels, sampleRate, bitDepth, samples
-  // For interleaved data with multiple channels, we need to deinterleave
-  if (numChannels === 1) {
-    outWav.fromScratch(1, sampleRate, "32f", finalOutput);
-  } else {
-    // Deinterleave for multi-channel output
-    const channelData = [];
-    for (let ch = 0; ch < numChannels; ch++) {
-      const channelSamples = new Float32Array(samplesPerChannel);
-      for (let i = 0; i < samplesPerChannel; i++) {
-        channelSamples[i] = finalOutput[i * numChannels + ch];
-      }
-      channelData.push(channelSamples);
-    }
-    outWav.fromScratch(numChannels, sampleRate, "32f", channelData);
-  }
-
+  outWav.fromScratch(1, sampleRate, "32f", finalOutput);
   fs.writeFileSync(outputFile, outWav.toBuffer());
   console.log("Output written to:", outputFile);
 } catch (error) {

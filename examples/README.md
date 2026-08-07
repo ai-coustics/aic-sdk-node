@@ -1,6 +1,6 @@
 # Examples
 
-## Basic Usage
+## Usage
 
 Build locally:
 
@@ -9,11 +9,18 @@ npm install
 npm run build
 ```
 
-Run the basic example:
+Run the enhancement example:
 
 ```bash
 export AIC_SDK_LICENSE="your-license-key"
-node examples/basic.js
+node examples/enhancement.js
+```
+
+Run the voice activity detection example:
+
+```bash
+export AIC_SDK_LICENSE="your-license-key"
+node examples/vad.js
 ```
 
 Run the file processing example:
@@ -30,4 +37,4 @@ export AIC_SDK_LICENSE="your-license-key"
 node examples/analysis.js
 ```
 
-Get your license key from [ai-coustics Developer Portal](https://developers.ai-coustics.io).
+Get your license key from [ai-coustics Developer Portal](https://developers.ai-coustics.com).

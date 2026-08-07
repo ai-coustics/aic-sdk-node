@@ -1,6 +1,6 @@
 # aic-sdk - Node.js Bindings for ai-coustics SDK
 
-Node.js wrapper for the ai-coustics Speech Enhancement SDK.
+Node.js wrapper for the ai-coustics SDK.
 
 For comprehensive documentation, visit [docs.ai-coustics.com](https://docs.ai-coustics.com).
 
@@ -22,21 +22,20 @@ const { Model, Processor } = require("@ai-coustics/aic-sdk");
 const licenseKey = process.env.AIC_SDK_LICENSE;
 
 // Download and load a model (or download manually at https://artifacts.ai-coustics.io/)
-const modelPath = Model.download("quail-vf-2.1-l-16khz", "./models");
+const modelPath = Model.download("quail-vf-2.2-s-16khz", "./models");
 const model = Model.fromFile(modelPath);
 
 // Get optimal configuration
 const sampleRate = model.getOptimalSampleRate();
-const numFrames = model.getOptimalNumFrames(sampleRate);
-const numChannels = 2;
+const blockSize = model.getOptimalBlockSize(sampleRate);
 
 // Create and initialize processor
 const processor = new Processor(model, licenseKey);
-processor.initialize(sampleRate, numChannels, numFrames, false);
+processor.initialize(sampleRate, blockSize, false);
 
-// Process audio (Float32Array, interleaved: [L0, R0, L1, R1, ...])
-const audioBuffer = new Float32Array(numChannels * numFrames);
-processor.processInterleaved(audioBuffer);
+// Process mono audio (Float32Array, modified in-place)
+const audioBlock = new Float32Array(blockSize);
+processor.process(audioBlock);
 ```
 
 ## Usage
@@ -64,7 +63,7 @@ const model = Model.fromFile("path/to/model.aicmodel");
 
 #### Download from CDN
 ```javascript
-const modelPath = Model.download("quail-vf-2.1-l-16khz", "./models");
+const modelPath = Model.download("quail-vf-2.2-s-16khz", "./models");
 const model = Model.fromFile(modelPath);
 ```
 
@@ -77,8 +76,8 @@ const modelId = model.getId();
 // Get optimal sample rate for the model
 const optimalRate = model.getOptimalSampleRate();
 
-// Get optimal frame count for a specific sample rate
-const optimalFrames = model.getOptimalNumFrames(48000);
+// Get optimal block size for a specific sample rate
+const optimalBlockSize = model.getOptimalBlockSize(48000);
 ```
 
 ### Configuring the Processor
@@ -89,10 +88,9 @@ const processor = new Processor(model, licenseKey);
 
 // Initialize with audio settings
 processor.initialize(
-  sampleRate,           // Sample rate in Hz (8000 - 192000)
-  numChannels,          // Number of audio channels
-  numFrames,            // Samples per channel per processing call
-  allowVariableFrames   // Allow variable frame sizes (default: false)
+  sampleRate,          // Sample rate in Hz (8000 - 192000)
+  blockSize,           // Samples per processing call
+  variableBlockSize   // Allow variable block sizes (default: false)
 );
 ```
 
@@ -105,6 +103,7 @@ const licenseKey = process.env.AIC_SDK_LICENSE;
 const model = Model.fromFile("path/to/model.aicmodel");
 
 // Override AIC_SDK_OTEL_ENABLE for this processor only.
+// The same configuration can be passed to a Vad.
 const otel = OtelConfig.withSessionId("session-1");
 const processor = new Processor(model, licenseKey, otel);
 
@@ -129,25 +128,31 @@ stays in use.
 ```javascript
 const model = Model.fromFile("path/to/model.aicmodel");
 const processor = new Processor(model, jwtLicense);
-const processorContext = processor.getProcessorContext();
+const processorContext = processor.getContext();
 
 processorContext.updateBearerToken(renewedJwt);
 ```
 
+The same applies to `VadContext.updateBearerToken()` for a VAD created with a JWT license.
+
 ### Processing Audio
 
 ```javascript
-// Interleaved audio: [L0, R0, L1, R1, ...]
-const buffer = new Float32Array(numChannels * numFrames);
-processor.processInterleaved(buffer);
+// Mono audio (Float32Array), enhanced in-place
+const audioBlock = new Float32Array(blockSize);
+processor.process(audioBlock);
+```
 
-// Sequential audio: [L0, L1, ..., R0, R1, ...]
-processor.processSequential(buffer);
+### Ending a Session
 
-// Planar audio: separate buffer per channel
-const left = new Float32Array(numFrames);
-const right = new Float32Array(numFrames);
-processor.processPlanar([left, right]);
+Telemetry sessions end automatically when their processor, VAD, or analyzer is destroyed. Call
+`terminateSession()` to end one at a specific lifecycle event. The instance cannot process or
+analyze more audio afterwards.
+
+```javascript
+processor.terminateSession();
+// vad.terminateSession();
+// analyzer.terminateSession();
 ```
 
 ### Processor Context
@@ -156,12 +161,12 @@ processor.processPlanar([left, right]);
 const { ProcessorParameter } = require("@ai-coustics/aic-sdk");
 
 // Get processor context
-const procCtx = processor.getProcessorContext();
+const procCtx = processor.getContext();
 
-// Get output delay in samples
-const delay = procCtx.getOutputDelay();
+// Get the delay applied to the audio in samples
+const delay = procCtx.getAudioDelay();
 
-// Reset processor state (clears internal buffers)
+// Reset processor state (clears internal state)
 procCtx.reset();
 
 // Set enhancement parameters
@@ -175,36 +180,73 @@ console.log(`Enhancement level: ${level}`);
 
 ### Voice Activity Detection (VAD)
 
+Voice activity detection runs on its own `Vad` instance, created from a dedicated VAD model
+(for example `vad-2.1-xxs-16khz`). Enhancement models are rejected.
+
+```javascript
+const { Model, Vad } = require("@ai-coustics/aic-sdk");
+
+const vadModelPath = Model.download("vad-2.1-xxs-16khz", "./models");
+const vadModel = Model.fromFile(vadModelPath);
+const sampleRate = vadModel.getOptimalSampleRate();
+const blockSize = vadModel.getOptimalBlockSize(sampleRate);
+
+const vad = new Vad(vadModel, licenseKey);
+vad.initialize(sampleRate, blockSize, false);
+
+// Feed mono audio to the detector. The audio block is not modified.
+const audioBlock = new Float32Array(blockSize);
+vad.process(audioBlock);
+```
+
+When enhancement and VAD run together, feed the VAD the original input audio, not the processor's
+enhanced output. Run both on the same block instead of chaining them:
+
+```javascript
+const audioBlock = new Float32Array(blockSize);
+
+vad.process(audioBlock); // reads the block, does not modify it
+processor.process(audioBlock); // enhances the block in place
+```
+
+Enhancement is designed to change the signal, so running the VAD on its output means detecting
+speech in audio that no longer matches what the VAD model expects, and it stacks the processor's
+audio delay on top of the VAD's prediction delay.
+
+The VAD context provides thread-safe access to the prediction, the VAD parameters and its state.
+You can create multiple contexts from one VAD.
+
 ```javascript
 const { VadParameter } = require("@ai-coustics/aic-sdk");
 
-// Get VAD context from processor
-const vadCtx = processor.getVadContext();
+// Get VAD context from the VAD
+const vadContext = vad.getContext();
 
-// Configure VAD parameters
-vadCtx.setParameter(VadParameter.Sensitivity, 6.0);
-vadCtx.setParameter(VadParameter.SpeechHoldDuration, 0.05);
-vadCtx.setParameter(VadParameter.MinimumSpeechDuration, 0.0);
+// Configure VAD parameters. Sensitivity is the probability threshold of the model output.
+vadContext.setParameter(VadParameter.Sensitivity, 0.5);
+vadContext.setParameter(VadParameter.SpeechHoldDuration, 0.05);
+vadContext.setParameter(VadParameter.MinimumSpeechDuration, 0.0);
 
 // Get parameter values
-const sensitivity = vadCtx.getParameter(VadParameter.Sensitivity);
-console.log(`VAD sensitivity: ${sensitivity}`);
+console.log(`VAD sensitivity: ${vadContext.getParameter(VadParameter.Sensitivity)}`);
 
-// Check for speech (after processing audio through the processor)
-if (vadCtx.isSpeechDetected()) {
-  console.log("Speech detected!");
-}
+// How many samples the prediction lags behind the input. This delay is not applied to the
+// audio, Vad.process() leaves the buffer untouched.
+console.log(`Prediction delay: ${vadContext.getPredictionDelay()} samples`);
 
-// Read the raw VAD model output probability
-const probability = vadCtx.rawVadProbability();
-console.log(`Raw VAD probability: ${probability}`);
+// Check for speech (after processing audio through the VAD)
+console.log(`Speech detected: ${vadContext.isSpeechDetected()}`);
+console.log(`Raw probability: ${vadContext.rawVadProbability()}`);
+
+// Clear the prediction and all internal state, e.g. when the stream is interrupted
+vadContext.reset();
 ```
 
 ### Audio Analysis
 
 Analysis models (for example `tyto-l-16khz`) score audio quality instead of enhancing it. Use
-`FileAnalyzer` for complete mono buffers already in memory, or `analyzerPair` for streaming and
-multi-channel analysis.
+`FileAnalyzer` for complete audio files, or `analyzerPair` for streaming
+analysis.
 
 #### FileAnalyzer
 
@@ -245,14 +287,14 @@ const model = Model.fromFile("path/to/tyto-l-16khz.aicmodel");
 const { collector, analyzer } = analyzerPair(model, licenseKey);
 
 const sampleRate = model.getOptimalSampleRate();
-const numFrames = model.getOptimalNumFrames(sampleRate);
-collector.initialize(sampleRate, 1, numFrames, false);
+const blockSize = model.getOptimalBlockSize(sampleRate);
+collector.initialize(sampleRate, blockSize, false);
 
-// Buffer audio chunks (for example on an audio thread).
-const chunk = new Float32Array(numFrames);
-collector.bufferInterleaved(chunk);
+// Pass one mono audio block at a time (for example on an audio thread).
+const audioBlock = new Float32Array(blockSize);
+collector.buffer(audioBlock);
 
-// Analyze the buffered audio off the audio thread.
+// Analyze the collected audio off the audio thread.
 const result = analyzer.analyzeBuffered();
 console.log("Risk score:", result.riskScore);
 
@@ -262,7 +304,19 @@ analyzer.reset();
 
 ## Examples
 
-See the [`basic.js`](examples/basic.js) file for a complete working example.
+See the example files for complete working examples:
+
+- [`examples/enhancement.js`](examples/enhancement.js) - Basic usage example
+- [`examples/vad.js`](examples/vad.js) - Voice activity detection with a dedicated VAD model
+- [`examples/analysis.js`](examples/analysis.js) - Audio analysis with `FileAnalyzer` and `analyzerPair`
+- [`examples/file-processing.js`](examples/file-processing.js) - Enhance a WAV file block by block
+
+Run examples with:
+
+```bash
+export AIC_SDK_LICENSE="your_license_key_here"
+node examples/enhancement.js
+```
 
 ## Documentation
 

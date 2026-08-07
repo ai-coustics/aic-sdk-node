@@ -12,16 +12,27 @@ const TEST_AUDIO_ENHANCED_PATH = path.join(
 );
 const VAD_RESULTS_PATH = path.join(__dirname, "data", "vad_results.json");
 
+/** Enhancement model used for the audio enhancement tests. */
+const ENHANCEMENT_MODEL_ID = "quail-vf-2.2-s-16khz";
 /**
- * Finds an existing model file in the target directory whose name starts with a prefix.
+ * Dedicated VAD model used for the voice activity detection tests. Enhancement models cannot
+ * be used for voice activity detection.
+ */
+const VAD_MODEL_ID = "vad-2.1-xxs-16khz";
+/** Analysis model used for the analyzer tests. */
+const ANALYSIS_MODEL_ID = "tyto-l-16khz";
+
+/**
+ * Finds an existing model file in the target directory that belongs to a model ID.
  * @param {string} targetDir - Directory to search in
- * @param {string} prefix - File name prefix to match (e.g. "quail_vf")
+ * @param {string} modelId - Model ID whose file name prefix to match
  * @returns {string|null} - Path to found model or null
  */
-function findExistingModel(targetDir, prefix) {
+function findExistingModel(targetDir, modelId) {
   if (!fs.existsSync(targetDir)) {
     return null;
   }
+  const prefix = modelId.replace(/[-.]/g, "_");
   const entries = fs.readdirSync(targetDir);
   for (const entry of entries) {
     if (entry.endsWith(".aicmodel") && entry.startsWith(prefix)) {
@@ -32,13 +43,14 @@ function findExistingModel(targetDir, prefix) {
 }
 
 /**
- * Gets the path to the test model, downloading if necessary.
+ * Downloads a model into the package's target directory, reusing an already downloaded file.
+ * @param {string} modelId - Model ID to resolve
  * @returns {string} - Path to the model file
  */
-function getTestModelPath() {
+function getModelPath(modelId) {
   const targetDir = path.join(__dirname, "..", "target");
 
-  const existing = findExistingModel(targetDir, "quail_vf");
+  const existing = findExistingModel(targetDir, modelId);
   if (existing) {
     return existing;
   }
@@ -47,7 +59,23 @@ function getTestModelPath() {
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  return Model.download("quail-vf-2.1-s-16khz", targetDir);
+  return Model.download(modelId, targetDir);
+}
+
+/**
+ * Gets the path to the enhancement test model, downloading if necessary.
+ * @returns {string} - Path to the model file
+ */
+function getTestModelPath() {
+  return getModelPath(ENHANCEMENT_MODEL_ID);
+}
+
+/**
+ * Gets the path to the dedicated VAD test model, downloading if necessary.
+ * @returns {string} - Path to the VAD model file
+ */
+function getVadModelPath() {
+  return getModelPath(VAD_MODEL_ID);
 }
 
 /**
@@ -55,18 +83,7 @@ function getTestModelPath() {
  * @returns {string} - Path to the analysis model file
  */
 function getAnalysisModelPath() {
-  const targetDir = path.join(__dirname, "..", "target");
-
-  const existing = findExistingModel(targetDir, "tyto");
-  if (existing) {
-    return existing;
-  }
-
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-
-  return Model.download("tyto-l-16khz", targetDir);
+  return getModelPath(ANALYSIS_MODEL_ID);
 }
 
 /**
@@ -86,27 +103,25 @@ function licenseKey() {
  * Audio data structure returned by loadWavAudio.
  * @typedef {Object} TestAudio
  * @property {number} sampleRate - Sample rate in Hz
- * @property {number} numChannels - Number of audio channels
- * @property {number} numFrames - Number of frames (samples per channel)
- * @property {Float32Array} interleavedSamples - Interleaved audio samples
+ * @property {number} sampleCount - Number of samples
+ * @property {Float32Array} samples - Mono audio samples
  */
 
 /**
- * Loads a WAV file and returns audio data.
+ * Loads a mono WAV file and returns audio data.
  * Uses manual normalization to match Rust's hound library exactly (no dithering).
  * @param {string} filePath - Path to the WAV file
  * @returns {TestAudio} - Audio data structure
  */
 function loadWavAudio(filePath) {
-  const buffer = fs.readFileSync(filePath);
-  const wav = new WaveFile(buffer);
+  const fileBytes = fs.readFileSync(filePath);
+  const wav = new WaveFile(fileBytes);
 
   const sampleRate = wav.fmt.sampleRate;
-  const numChannels = wav.fmt.numChannels;
   const audioFormat = wav.fmt.audioFormat;
   const bitsPerSample = wav.fmt.bitsPerSample;
 
-  let interleavedSamples;
+  let samples;
 
   // Check if this is a 32-bit float format
   const isFloat32 =
@@ -116,102 +131,28 @@ function loadWavAudio(filePath) {
       bitsPerSample === 32);
 
   if (isFloat32) {
-    // Read raw buffer directly as Float32Array (wavefile misinterprets float samples)
-    const dataBuffer = wav.data.samples;
-    interleavedSamples = new Float32Array(
-      dataBuffer.buffer,
-      dataBuffer.byteOffset,
-      dataBuffer.length / 4,
+    // View the raw sample bytes directly as float32 values (wavefile misinterprets them).
+    const sampleBytes = wav.data.samples;
+    samples = new Float32Array(
+      sampleBytes.buffer,
+      sampleBytes.byteOffset,
+      sampleBytes.length / 4,
     );
   } else {
     // Integer format: normalize manually (divide by 2^(bits-1), no dithering)
     const rawSamples = wav.getSamples(true);
     const maxValue = 1 << (bitsPerSample - 1);
-    interleavedSamples = new Float32Array(rawSamples.length);
+    samples = new Float32Array(rawSamples.length);
     for (let i = 0; i < rawSamples.length; i++) {
-      interleavedSamples[i] = rawSamples[i] / maxValue;
+      samples[i] = rawSamples[i] / maxValue;
     }
   }
 
   return {
     sampleRate,
-    numChannels,
-    numFrames: interleavedSamples.length / numChannels,
-    interleavedSamples,
+    sampleCount: samples.length,
+    samples,
   };
-}
-
-/**
- * Converts interleaved audio to sequential format.
- * @param {Float32Array} interleaved - Interleaved samples [L0, R0, L1, R1, ...]
- * @param {number} numChannels - Number of channels
- * @returns {Float32Array} - Sequential samples [L0, L1, ..., R0, R1, ...]
- */
-function interleavedToSequential(interleaved, numChannels) {
-  const numFrames = interleaved.length / numChannels;
-  const sequential = new Float32Array(interleaved.length);
-  for (let frame = 0; frame < numFrames; frame++) {
-    for (let ch = 0; ch < numChannels; ch++) {
-      sequential[ch * numFrames + frame] =
-        interleaved[frame * numChannels + ch];
-    }
-  }
-  return sequential;
-}
-
-/**
- * Converts sequential audio to interleaved format.
- * @param {Float32Array} sequential - Sequential samples [L0, L1, ..., R0, R1, ...]
- * @param {number} numChannels - Number of channels
- * @returns {Float32Array} - Interleaved samples [L0, R0, L1, R1, ...]
- */
-function sequentialToInterleaved(sequential, numChannels) {
-  const numFrames = sequential.length / numChannels;
-  const interleaved = new Float32Array(sequential.length);
-  for (let frame = 0; frame < numFrames; frame++) {
-    for (let ch = 0; ch < numChannels; ch++) {
-      interleaved[frame * numChannels + ch] =
-        sequential[ch * numFrames + frame];
-    }
-  }
-  return interleaved;
-}
-
-/**
- * Converts interleaved audio to planar format.
- * @param {Float32Array} interleaved - Interleaved samples [L0, R0, L1, R1, ...]
- * @param {number} numChannels - Number of channels
- * @returns {Float32Array[]} - Array of Float32Arrays, one per channel
- */
-function interleavedToPlanar(interleaved, numChannels) {
-  const numFrames = interleaved.length / numChannels;
-  const planar = [];
-  for (let ch = 0; ch < numChannels; ch++) {
-    planar.push(new Float32Array(numFrames));
-  }
-  for (let frame = 0; frame < numFrames; frame++) {
-    for (let ch = 0; ch < numChannels; ch++) {
-      planar[ch][frame] = interleaved[frame * numChannels + ch];
-    }
-  }
-  return planar;
-}
-
-/**
- * Converts planar audio to interleaved format.
- * @param {Float32Array[]} planar - Array of Float32Arrays, one per channel
- * @returns {Float32Array} - Interleaved samples [L0, R0, L1, R1, ...]
- */
-function planarToInterleaved(planar) {
-  const numChannels = planar.length;
-  const numFrames = planar[0].length;
-  const interleaved = new Float32Array(numChannels * numFrames);
-  for (let frame = 0; frame < numFrames; frame++) {
-    for (let ch = 0; ch < numChannels; ch++) {
-      interleaved[frame * numChannels + ch] = planar[ch][frame];
-    }
-  }
-  return interleaved;
 }
 
 /**
@@ -230,12 +171,9 @@ module.exports = {
   TEST_AUDIO_ENHANCED_PATH,
   VAD_RESULTS_PATH,
   getTestModelPath,
+  getVadModelPath,
   getAnalysisModelPath,
   licenseKey,
   loadWavAudio,
-  interleavedToSequential,
-  sequentialToInterleaved,
-  interleavedToPlanar,
-  planarToInterleaved,
   approxEqual,
 };

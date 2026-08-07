@@ -3,13 +3,13 @@ const { Model, FileAnalyzer, analyzerPair, getVersion } = require("..");
 // Check for license key
 if (!process.env.AIC_SDK_LICENSE) {
   console.error("Error: AIC_SDK_LICENSE environment variable not set");
-  console.error("Get your license key from https://developers.ai-coustics.io");
+  console.error("Get your license key from https://developers.ai-coustics.com");
   process.exit(1);
 }
 
 const licenseKey = process.env.AIC_SDK_LICENSE;
 
-console.log("SDK Version:", getVersion());
+console.log("SDK version:", getVersion());
 
 // Download and load an analysis model. Analysis models score audio quality
 // instead of enhancing it.
@@ -37,7 +37,7 @@ function printResult(label, result) {
   console.log("  Packet loss:       ", result.packetLoss.toFixed(4));
 }
 
-// --- FileAnalyzer: analyze a complete mono buffer ---------------------------
+// --- FileAnalyzer: analyze a complete mono signal ---------------------------
 
 // Twelve seconds of low-level test audio.
 const audio = new Float32Array(sampleRate * 12);
@@ -62,12 +62,12 @@ try {
 try {
   const { collector, analyzer } = analyzerPair(model, licenseKey);
 
-  const numFrames = model.getOptimalNumFrames(sampleRate);
-  collector.initialize(sampleRate, 1, numFrames, false);
+  const blockSize = model.getOptimalBlockSize(sampleRate);
+  collector.initialize(sampleRate, blockSize, false);
 
-  // Buffer five seconds of audio in optimal-size frames.
-  for (let offset = 0; offset + numFrames <= sampleRate * 5; offset += numFrames) {
-    collector.bufferInterleaved(audio.subarray(offset, offset + numFrames));
+  // Pass five seconds of audio to the collector in optimal-size blocks.
+  for (let offset = 0; offset + blockSize <= sampleRate * 5; offset += blockSize) {
+    collector.buffer(audio.subarray(offset, offset + blockSize));
   }
 
   const result = analyzer.analyzeBuffered();

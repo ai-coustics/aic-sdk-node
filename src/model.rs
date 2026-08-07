@@ -8,9 +8,7 @@ pub struct Model {
     pub(crate) inner: aic_sdk::Model<'static>,
 }
 
-impl Finalize for Model {
-    fn finalize<'a, C: neon::prelude::Context<'a>>(self, _: &mut C) {}
-}
+impl Finalize for Model {}
 
 impl Model {
     pub fn from_file(mut cx: FunctionContext) -> JsResult<JsBox<Model>> {
@@ -39,20 +37,20 @@ impl Model {
         Ok(cx.number(sample_rate))
     }
 
-    pub fn get_optimal_num_frames(mut cx: FunctionContext) -> JsResult<JsNumber> {
+    pub fn get_optimal_block_size(mut cx: FunctionContext) -> JsResult<JsNumber> {
         let this = cx.argument::<JsBox<Model>>(0)?;
         let sample_rate = cx.argument::<JsNumber>(1)?.value(&mut cx) as u32;
-        let num_frames = this.inner.optimal_num_frames(sample_rate);
-        Ok(cx.number(num_frames as f64))
+        let block_size = this.inner.optimal_block_size(sample_rate);
+        Ok(cx.number(block_size as f64))
     }
 }
 
 pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()> {
     cx.export_function("modelFromFile", Model::from_file)?;
     cx.export_function("modelDownload", Model::download)?;
-    cx.export_function("modelId", Model::get_id)?;
+    cx.export_function("modelGetId", Model::get_id)?;
     cx.export_function("modelGetOptimalSampleRate", Model::get_optimal_sample_rate)?;
-    cx.export_function("modelGetOptimalNumFrames", Model::get_optimal_num_frames)?;
+    cx.export_function("modelGetOptimalBlockSize", Model::get_optimal_block_size)?;
 
     Ok(())
 }
