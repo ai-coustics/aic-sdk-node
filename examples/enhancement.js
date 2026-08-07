@@ -69,7 +69,7 @@ try {
 }
 
 console.log(
-  "Enhancement Level:",
+  "Enhancement level:",
   processorContext.getParameter(ProcessorParameter.EnhancementLevel),
 );
 
