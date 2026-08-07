@@ -11,7 +11,7 @@ const path = require("path");
 const licenseKey = process.env.AIC_SDK_LICENSE;
 if (!licenseKey) {
   console.error("Error: AIC_SDK_LICENSE environment variable not set");
-  console.error("Get your license key from https://developers.ai-coustics.io");
+  console.error("Get your license key from https://developers.ai-coustics.com");
   process.exit(1);
 }
 
