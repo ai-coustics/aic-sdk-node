@@ -14,7 +14,7 @@ if (!process.env.AIC_SDK_LICENSE) {
 }
 
 console.log("SDK version:", getVersion());
-console.log("Compatible Model Version:", getCompatibleModelVersion());
+console.log("Compatible model version:", getCompatibleModelVersion());
 
 // Download and load an enhancement model. Enhancement models improve speech quality; use
 // examples/vad.js for voice activity detection with a dedicated VAD model.
