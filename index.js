@@ -1000,6 +1000,11 @@ function getCompatibleModelVersion() {
   return native.getCompatibleModelVersion();
 }
 
+// Internal only
+function _setSdkId(id) {
+  native.setSdkId(id);
+}
+
 module.exports = {
   Model,
   OtelConfig,
@@ -1015,4 +1020,5 @@ module.exports = {
   VadParameter,
   getVersion,
   getCompatibleModelVersion,
+  _setSdkId,
 };
