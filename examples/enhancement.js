@@ -58,7 +58,7 @@ try {
 const processorContext = processor.getContext();
 
 // Get the delay applied to the audio
-console.log("Audio Delay:", processorContext.getAudioDelay(), "samples");
+console.log("Audio delay:", processorContext.getAudioDelay(), "samples");
 
 // Set enhancement parameters
 try {
