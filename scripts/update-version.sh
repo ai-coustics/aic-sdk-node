@@ -48,5 +48,11 @@ if (pkg.optionalDependencies) {
 }
 "
 
+# `npm version` above rewrote package-lock.json while optionalDependencies still held the previous
+# version, so the lockfile's copy of the root manifest is stale. Rewrite it from the updated
+# package.json. The platform packages for this version are not published yet, so resolve nothing.
+npm install --package-lock-only --ignore-scripts >/dev/null
+echo "Updated package-lock.json to version $VERSION"
+
 echo "Updated to version $VERSION"
 echo "Next: git add . && git commit -m 'chore: bump version to $VERSION' && git tag $VERSION && git push origin main --tags"
