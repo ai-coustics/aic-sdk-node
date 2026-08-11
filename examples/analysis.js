@@ -15,7 +15,7 @@ console.log("SDK version:", getVersion());
 // instead of enhancing it.
 let model;
 try {
-  const modelPath = Model.download("tyto-l-16khz", "/tmp/aic-models");
+  const modelPath = Model.download("tyto-1.1-l-16khz", "/tmp/aic-models");
   console.log("Model downloaded to:", modelPath);
   model = Model.fromFile(modelPath);
   console.log("Model ID:", model.getId());
@@ -32,8 +32,8 @@ function printResult(label, result) {
   console.log("  Speaker reverb:    ", result.speakerReverb.toFixed(4));
   console.log("  Speaker loudness:  ", result.speakerLoudness.toFixed(4));
   console.log("  Interfering speech:", result.interferingSpeech.toFixed(4));
-  console.log("  Media speech:      ", result.mediaSpeech.toFixed(4));
   console.log("  Noise:             ", result.noise.toFixed(4));
+  console.log("  Codec degradation: ", result.codecDegradation.toFixed(4));
   console.log("  Packet loss:       ", result.packetLoss.toFixed(4));
 }
 

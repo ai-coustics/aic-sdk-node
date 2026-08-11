@@ -20,7 +20,7 @@ const ENHANCEMENT_MODEL_ID = "quail-vf-2.2-s-16khz";
  */
 const VAD_MODEL_ID = "vad-2.1-xxs-16khz";
 /** Analysis model used for the analyzer tests. */
-const ANALYSIS_MODEL_ID = "tyto-l-16khz";
+const ANALYSIS_MODEL_ID = "tyto-1.1-l-16khz";
 
 /**
  * Finds an existing model file in the target directory that belongs to a model ID.

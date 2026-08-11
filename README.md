@@ -244,7 +244,7 @@ vadContext.reset();
 
 ### Audio Analysis
 
-Analysis models (for example `tyto-l-16khz`) score audio quality instead of enhancing it. Use
+Analysis models (for example `tyto-1.1-l-16khz`) score audio quality instead of enhancing it. Use
 `FileAnalyzer` for complete audio files, or `analyzerPair` for streaming
 analysis.
 
@@ -254,7 +254,7 @@ analysis.
 const { Model, FileAnalyzer } = require("@ai-coustics/aic-sdk");
 
 const licenseKey = process.env.AIC_SDK_LICENSE;
-const modelPath = Model.download("tyto-l-16khz", "./models");
+const modelPath = Model.download("tyto-1.1-l-16khz", "./models");
 const model = Model.fromFile(modelPath);
 
 const analyzer = new FileAnalyzer(model, licenseKey);
@@ -275,15 +275,15 @@ for (const result of results) {
 ```
 
 Each result is an object with the fields `riskScore`, `speakerReverb`, `speakerLoudness`,
-`interferingSpeech`, `mediaSpeech`, `noise` and `packetLoss`. All scores are in the range 0.0 to
-1.0. For every field except `speakerLoudness`, lower values indicate less problematic audio.
+`interferingSpeech`, `noise`, `codecDegradation` and `packetLoss`. All scores are in the range 0.0
+to 1.0. For every field except `speakerLoudness`, lower values indicate less problematic audio.
 
 #### Collector and Analyzer pair
 
 ```javascript
 const { Model, analyzerPair } = require("@ai-coustics/aic-sdk");
 
-const model = Model.fromFile("path/to/tyto-l-16khz.aicmodel");
+const model = Model.fromFile("path/to/tyto-1.1-l-16khz.aicmodel");
 const { collector, analyzer } = analyzerPair(model, licenseKey);
 
 const sampleRate = model.getOptimalSampleRate();
