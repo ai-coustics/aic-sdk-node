@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "node tests/end2end.test.js",
-    "build": "cargo build --release && cp target/release/libaic_sdk_node.so index.node 2>/dev/null || cp target/release/libaic_sdk_node.dylib index.node 2>/dev/null || cp target/release/aic_sdk_node.dll index.node 2>/dev/null || true",
-    "debug": "cargo build && cp target/debug/libaic_sdk_node.so index.node 2>/dev/null || cp target/debug/libaic_sdk_node.dylib index.node 2>/dev/null || cp target/debug/aic_sdk_node.dll index.node 2>/dev/null || true",
+    "build": "bash scripts/build-target.sh index.node",
+    "debug": "bash scripts/build-target.sh index.node '' debug",
     "version:update": "bash scripts/update-version.sh",
     "prepublishOnly": "echo 'Use GitHub Actions to publish. See PUBLISHING.md for details.' && exit 1"
   },
