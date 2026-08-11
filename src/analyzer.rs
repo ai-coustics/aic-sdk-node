@@ -24,8 +24,8 @@ fn analysis_result_to_object<'a, C: Context<'a>>(
         ("speakerReverb", result.speaker_reverb),
         ("speakerLoudness", result.speaker_loudness),
         ("interferingSpeech", result.interfering_speech),
-        ("mediaSpeech", result.media_speech),
         ("noise", result.noise),
+        ("codecDegradation", result.codec_degradation),
         ("packetLoss", result.packet_loss),
     ];
     for (key, value) in fields {

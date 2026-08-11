@@ -1,12 +1,12 @@
 {
   "name": "@ai-coustics/aic-sdk",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Node.js package of ai-coustics SDK",
   "main": "index.js",
   "scripts": {
     "test": "node tests/end2end.test.js",
-    "build": "cargo build --release && cp target/release/libaic_sdk_node.so index.node 2>/dev/null || cp target/release/libaic_sdk_node.dylib index.node 2>/dev/null || cp target/release/aic_sdk_node.dll index.node 2>/dev/null || true",
-    "debug": "cargo build && cp target/debug/libaic_sdk_node.so index.node 2>/dev/null || cp target/debug/libaic_sdk_node.dylib index.node 2>/dev/null || cp target/debug/aic_sdk_node.dll index.node 2>/dev/null || true",
+    "build": "bash scripts/build-target.sh index.node",
+    "debug": "bash scripts/build-target.sh index.node '' debug",
     "version:update": "bash scripts/update-version.sh",
     "prepublishOnly": "echo 'Use GitHub Actions to publish. See PUBLISHING.md for details.' && exit 1"
   },
@@ -35,15 +35,14 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@ai-coustics/aic-sdk-darwin-arm64": "0.22.0",
-    "@ai-coustics/aic-sdk-darwin-x64": "0.22.0",
-    "@ai-coustics/aic-sdk-linux-arm64-gnu": "0.22.0",
-    "@ai-coustics/aic-sdk-linux-x64-gnu": "0.22.0",
-    "@ai-coustics/aic-sdk-win32-arm64-msvc": "0.22.0",
-    "@ai-coustics/aic-sdk-win32-x64-msvc": "0.22.0"
+    "@ai-coustics/aic-sdk-darwin-arm64": "0.23.0",
+    "@ai-coustics/aic-sdk-darwin-x64": "0.23.0",
+    "@ai-coustics/aic-sdk-linux-arm64-gnu": "0.23.0",
+    "@ai-coustics/aic-sdk-linux-x64-gnu": "0.23.0",
+    "@ai-coustics/aic-sdk-win32-arm64-msvc": "0.23.0",
+    "@ai-coustics/aic-sdk-win32-x64-msvc": "0.23.0"
   },
   "devDependencies": {
-    "@neon-rs/cli": "0.1.82",
     "wavefile": "^11.0.0"
   }
 }

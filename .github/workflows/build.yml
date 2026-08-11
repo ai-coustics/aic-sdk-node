@@ -69,23 +69,11 @@ jobs:
           echo "[target.aarch64-unknown-linux-gnu]" >> ~/.cargo/config.toml
           echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
 
-      - name: Install dependencies
-        run: npm install
-
+      # Builds and places the binary in one step. The script asks cargo for the artifact path
+      # instead of reconstructing the per-platform file name, so `npm run build` can share it.
       - name: Build native module
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Copy binary to platform package
         shell: bash
-        run: |
-          mkdir -p npm/${{ matrix.platform }}
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            cp target/${{ matrix.target }}/release/aic_sdk_node.dll npm/${{ matrix.platform }}/index.node
-          elif [[ "${{ matrix.target }}" == *"darwin"* ]]; then
-            cp target/${{ matrix.target }}/release/libaic_sdk_node.dylib npm/${{ matrix.platform }}/index.node
-          else
-            cp target/${{ matrix.target }}/release/libaic_sdk_node.so npm/${{ matrix.platform }}/index.node
-          fi
+        run: bash scripts/build-target.sh npm/${{ matrix.platform }}/index.node ${{ matrix.target }}
 
       - name: Upload platform binary
         uses: actions/upload-artifact@v7

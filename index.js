@@ -388,12 +388,13 @@ class VadContext {
  * @property {number} speakerReverb - Measure of speaker distance and reverberance.
  *   Lower indicates less problematic audio. Range: 0.0 to 1.0.
  * @property {number} speakerLoudness - Measure of speaker loudness. Range: 0.0 to 1.0.
- * @property {number} interferingSpeech - Measure of interference from additional speakers
- *   present in audio. Lower indicates less problematic audio. Range: 0.0 to 1.0.
- * @property {number} mediaSpeech - Measure of interfering speech content from media devices,
- *   e.g. from TVs, radios or phones. Lower indicates less problematic audio. Range: 0.0 to 1.0.
+ * @property {number} interferingSpeech - Measure of interfering speech from sources other than
+ *   the main speaker. Lower indicates less problematic audio. Range: 0.0 to 1.0.
  * @property {number} noise - Measure of ambient or environmental noise.
  *   Lower indicates less problematic audio. Range: 0.0 to 1.0.
+ * @property {number} codecDegradation - Measure of artifacts introduced by lossy speech codecs,
+ *   e.g. from a low bitrate or a narrowband codec. Lower indicates less problematic audio.
+ *   Range: 0.0 to 1.0.
  * @property {number} packetLoss - Measure of audio dropouts or discontinuities in the stream,
  *   e.g. from packet loss, frame erasure, jitter or CPU overload.
  *   Lower indicates less problematic audio. Range: 0.0 to 1.0.

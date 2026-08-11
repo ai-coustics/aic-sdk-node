@@ -214,8 +214,8 @@ function assertValidAnalysisResult(result) {
     "speakerReverb",
     "speakerLoudness",
     "interferingSpeech",
-    "mediaSpeech",
     "noise",
+    "codecDegradation",
     "packetLoss",
   ];
   for (const field of fields) {
