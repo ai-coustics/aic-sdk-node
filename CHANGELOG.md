@@ -1,3 +1,10 @@
+# Changelog
+
+All notable changes to this project are documented here. This project adheres to
+[Semantic Versioning](https://semver.org/).
+
+## 0.23.0 - 2026-08-11
+
 This release updates the underlying ai-coustics SDK to 0.23.0.
 
 ### Breaking Changes
