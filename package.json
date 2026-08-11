@@ -43,7 +43,6 @@
     "@ai-coustics/aic-sdk-win32-x64-msvc": "0.23.0"
   },
   "devDependencies": {
-    "@neon-rs/cli": "0.1.82",
     "wavefile": "^11.0.0"
   }
 }
