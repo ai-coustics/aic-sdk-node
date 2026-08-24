@@ -1,22 +1,24 @@
+
 [package]
-authors = ["ai-coustics GmbH"]
-description = "Node.js Bindings for ai-coustics SDK"
 edition = "2024"
-exclude = ["index.node"]
-license = "Apache-2.0"
-name = "aic-sdk-node"
-rust-version = "1.87"
-version = "0.23.0"
+name = "aic_sdk_node"
+version = "0.24.0"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-aic-sdk = { version = "0.23.0", features = ["download-lib", "download-model"] }
-neon = "1.1"
+# `download-lib` fetches the matching prebuilt native library for $TARGET during the
+# build, so each `napi build --target <triple>` produces a self-contained `.node`
+# with no runtime library discovery. `download-model` backs `Model.download`.
+aic-sdk = { version = "0.23", features = ["download-lib", "download-model"] }
+napi = { version = "3.0.0", default-features = false, features = ["napi4"] }
+napi-derive = "3.0.0"
+
+[build-dependencies]
+napi-build = "2"
 
 [profile.release]
-codegen-units = 1
 lto = true
-opt-level = 3
-panic = "abort"
+codegen-units = 1
+strip = "symbols"

@@ -1,81 +1,72 @@
-const {
-  Model,
-  Vad,
-  VadParameter,
-  getVersion,
-  getCompatibleModelVersion,
-} = require("..");
-const os = require("os");
-const path = require("path");
+// Voice activity detection on the main thread.
+//
+// The VAD runs a dedicated VAD model and is driven independently of any processor.
+// `process` reads the block and leaves it untouched; predictions are read from the context.
 
-const licenseKey = process.env.AIC_SDK_LICENSE;
-if (!licenseKey) {
-  console.error("Error: AIC_SDK_LICENSE environment variable not set");
-  console.error("Get your license key from https://developers.ai-coustics.com");
-  process.exit(1);
+const { Model, Vad, VadParameter, getVersion } = require('..')
+
+const MODEL_ID = 'vad-2.1-xxs-16khz'
+const MODEL_DIR = './models'
+
+async function main() {
+  const licenseKey = process.env.AIC_SDK_LICENSE
+  if (!licenseKey) {
+    console.error('Error: AIC_SDK_LICENSE environment variable not set')
+    console.error('Get your license key from https://developers.ai-coustics.com')
+    process.exit(1)
+  }
+
+  console.log('SDK version:', getVersion())
+
+  // A dedicated VAD model. Enhancement models are rejected.
+  const modelPath = await Model.download(MODEL_ID, MODEL_DIR)
+  const model = Model.fromFile(modelPath)
+  console.log('Model id:', model.getId())
+
+  const sampleRate = model.getOptimalSampleRate()
+  const blockSize = model.getOptimalBlockSize(sampleRate)
+  console.log(`Audio format: ${blockSize} samples @ ${sampleRate} Hz`)
+
+  const vad = new Vad(model, licenseKey)
+  vad.initialize(sampleRate, blockSize)
+
+  const context = vad.getContext()
+
+  // How readily speech is detected, and how the decision is stabilized either side of a
+  // transition. All three can be changed while audio is being processed.
+  context.setParameter(VadParameter.Sensitivity, 0.8)
+  context.setParameter(VadParameter.MinimumSpeechDuration, 0.1)
+  context.setParameter(VadParameter.SpeechHoldDuration, 0.2)
+
+  // The hold and minimum durations are rounded to the model's window length, so reads can
+  // differ from writes.
+  console.log('Sensitivity:', context.getParameter(VadParameter.Sensitivity))
+  console.log('Minimum speech duration:', context.getParameter(VadParameter.MinimumSpeechDuration), 's')
+  console.log('Speech hold duration:', context.getParameter(VadParameter.SpeechHoldDuration), 's')
+
+  // The decision lags its input by this many samples. It is not applied to the audio, so
+  // use it to line speech decisions up with the audio timeline.
+  console.log('Prediction delay:', context.getPredictionDelay(), 'samples')
+
+  // Silence, so nothing should be reported. Feed real speech to see this flip.
+  const audio = new Float32Array(blockSize)
+  for (let block = 0; block < 10; block += 1) {
+    // Reads the block without modifying it, so the same buffer can go on to a processor.
+    vad.process(audio)
+  }
+
+  console.log('\nSpeech detected:', context.isSpeechDetected())
+  // The model's raw output, before speech-hold and thresholding.
+  console.log('Raw probability:', context.rawVadProbability().toFixed(4))
+
+  // Clear internal state, including the published prediction, on a discontinuity or seek.
+  context.reset()
+
+  vad.terminateSession()
+  console.log('\nVAD example completed successfully')
 }
 
-console.log("SDK version:", getVersion());
-console.log("Compatible model version:", getCompatibleModelVersion());
-
-try {
-  // Voice activity detection requires a dedicated VAD model. Enhancement models are rejected
-  // because the model type is not supported by this operation.
-  // Select a model id at https://artifacts.ai-coustics.io/
-  const downloadDir = path.join(os.tmpdir(), "aic-models");
-  const modelPath = Model.download("vad-2.1-xxs-16khz", downloadDir);
-  const model = Model.fromFile(modelPath);
-  const sampleRate = model.getOptimalSampleRate();
-  const blockSize = model.getOptimalBlockSize(sampleRate);
-
-  // Create the VAD with the license key and initialize it
-  const vad = new Vad(model, licenseKey);
-  vad.initialize(sampleRate, blockSize, false);
-
-  console.log("Model ID:", model.getId());
-  console.log("Sample rate:", sampleRate);
-  console.log("Block size:", blockSize);
-
-  // Get VAD context for thread safe interaction with the prediction and its parameters
-  const vadContext = vad.getContext();
-
-  // How far the prediction lags behind the input. This delay is not applied to the audio,
-  // Vad.process() leaves the buffer untouched.
-  console.log("Prediction delay:", vadContext.getPredictionDelay(), "samples");
-
-  // Configure the detector. Sensitivity is the probability threshold of the model output.
-  vadContext.setParameter(VadParameter.SpeechHoldDuration, 0.08);
-  vadContext.setParameter(VadParameter.Sensitivity, 0.5);
-  vadContext.setParameter(VadParameter.MinimumSpeechDuration, 0.0);
-
-  console.log(
-    "Speech hold duration:",
-    vadContext.getParameter(VadParameter.SpeechHoldDuration),
-  );
-  console.log(
-    "Sensitivity:",
-    vadContext.getParameter(VadParameter.Sensitivity),
-  );
-
-  // Feed mono audio to the detector. The audio block is not modified, it only updates the
-  // prediction. Replace the silence below with your own audio.
-  //
-  // When enhancement and VAD run together, feed the VAD the original input audio rather than
-  // the enhanced output of Processor.process().
-  const audioBlock = new Float32Array(blockSize);
-  vad.process(audioBlock);
-
-  console.log("Speech detected:", vadContext.isSpeechDetected());
-  console.log("Raw VAD probability:", vadContext.rawVadProbability());
-
-  // Clear the prediction and all internal state, e.g. when the stream is interrupted
-  vadContext.reset();
-
-  // End the telemetry session on demand instead of waiting for the VAD to be destroyed.
-  // The VAD can no longer process audio after this call.
-  vad.terminateSession();
-  console.log("Telemetry session terminated");
-} catch (error) {
-  console.error("Failed to run VAD:", error.message);
-  process.exit(1);
-}
+main().catch((error) => {
+  console.error('Error:', error.message)
+  process.exit(1)
+})

@@ -1,61 +1,67 @@
-use neon::prelude::*;
+#![deny(clippy::all)]
+
+//! Node.js bindings for the ai-coustics Audio Intelligence SDK.
+//!
+//! Thin napi-rs layer over the `aic-sdk` crate: the classes here own the corresponding SDK
+//! types directly, so lifetimes, cleanup and thread-safety are handled upstream.
+
+use napi_derive::napi;
 
 mod analyzer;
+mod error;
 mod model;
 mod processor;
-mod processor_context;
-mod util;
+mod processor_async;
 mod vad;
-mod vad_context;
+mod vad_async;
 
-fn get_sdk_version(mut cx: FunctionContext) -> JsResult<JsString> {
-    let version = aic_sdk::get_sdk_version();
-    Ok(cx.string(version))
+pub use analyzer::*;
+pub use model::*;
+pub use processor::*;
+pub use processor_async::*;
+pub use vad::*;
+pub use vad_async::*;
+
+/// Telemetry id assigned to this binding. Must match `SdkWrapper::NodeJs` in
+/// `aic-sdk-telemetry`.
+const SDK_WRAPPER_ID_NODE: u32 = 4;
+
+/// Claims the Node telemetry id, unless a wrapper embedding this package claimed its own
+/// first via [`set_sdk_id`].
+///
+/// The id lives in a `OnceLock` upstream: the first write wins and every later write is
+/// silently discarded. `aic-sdk` sets `2` ("Rust") inside each of its `Processor`, `Vad`
+/// and analyzer constructors, so every constructor here claims `4` before delegating. It is
+/// not claimed at module load on purpose: an embedder can only call [`set_sdk_id`] once the
+/// module is loaded, and their write must be able to win, so the window between load and
+/// first construction has to stay open.
+pub(crate) fn claim_sdk_id() {
+  // SAFETY: `4` is the wrapper id assigned to this binding by ai-coustics.
+  unsafe { aic_sdk::set_sdk_id(SDK_WRAPPER_ID_NODE) };
 }
 
-fn get_compatible_model_version(mut cx: FunctionContext) -> JsResult<JsNumber> {
-    let model_version = aic_sdk::get_compatible_model_version();
-    Ok(cx.number(model_version))
+/// Overrides the telemetry wrapper id. Internal only, for ai-coustics wrappers embedding
+/// this package (e.g. the LiveKit plugin): call before constructing any `Processor`, `Vad`
+/// or `Analyzer`, whose constructors otherwise claim the id for this SDK. The id can only
+/// be set once per process; later writes are silently discarded.
+#[napi(js_name = "_setSdkId")]
+pub fn set_sdk_id(id: u32) {
+  // SAFETY: This function has no safety requirements.
+  unsafe { aic_sdk::set_sdk_id(id) };
 }
 
-// Internal only, not part of the public API. Used by ai-coustics to identify wrapper
-// SDKs/plugins that embed this package (e.g. a LiveKit plugin built on top of this SDK).
-// The underlying ID can only be set once per process, so callers must invoke this before
-// constructing any Processor/Vad/Analyzer/FileAnalyzer, whose constructors otherwise claim
-// the ID for this SDK first.
-fn set_sdk_id(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-    let id = cx.argument::<JsNumber>(0)?.value(&mut cx) as u32;
-
-    // SAFETY: This function has no safety requirements.
-    unsafe {
-        aic_sdk::set_sdk_id(id);
-    }
-
-    Ok(cx.undefined())
+/// The version of the underlying native SDK, e.g. `"0.23.0"`.
+///
+/// Not necessarily this package's version.
+#[napi]
+pub fn get_version() -> String {
+  aic_sdk::get_sdk_version().to_owned()
 }
 
-#[neon::main]
-fn main(mut cx: ModuleContext) -> NeonResult<()> {
-    // Free functions
-    cx.export_function("getVersion", get_sdk_version)?;
-    cx.export_function("getCompatibleModelVersion", get_compatible_model_version)?;
-    cx.export_function("setSdkId", set_sdk_id)?;
-
-    // Model
-    model::register_exports(&mut cx)?;
-
-    // Processor
-    processor::register_exports(&mut cx)?;
-
-    // ProcessorContext
-    processor_context::register_exports(&mut cx)?;
-
-    // Vad / VadContext
-    vad::register_exports(&mut cx)?;
-    vad_context::register_exports(&mut cx)?;
-
-    // Analyzer / Collector
-    analyzer::register_exports(&mut cx)?;
-
-    Ok(())
+/// The model file format version this SDK can load.
+///
+/// Model URLs are versioned by this number, so it decides which model files are usable.
+#[napi]
+pub fn get_compatible_model_version() -> u32 {
+  aic_sdk::get_compatible_model_version()
 }

@@ -1,17 +1,20 @@
 {
   "name": "@ai-coustics/aic-sdk",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "description": "Node.js package of ai-coustics SDK",
   "main": "index.js",
-  "scripts": {
-    "test": "node tests/end2end.test.js",
-    "build": "bash scripts/build-target.sh index.node",
-    "debug": "bash scripts/build-target.sh index.node '' debug",
-    "version:update": "bash scripts/update-version.sh",
-    "prepublishOnly": "echo 'Use GitHub Actions to publish. See PUBLISHING.md for details.' && exit 1"
-  },
+  "types": "index.d.ts",
+  "type": "commonjs",
   "author": "ai-coustics GmbH",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/ai-coustics/aic-sdk-node#readme",
+  "bugs": {
+    "url": "https://github.com/ai-coustics/aic-sdk-node/issues"
+  },
+  "repository": {
+    "url": "git+https://github.com/ai-coustics/aic-sdk-node.git",
+    "type": "git"
+  },
   "keywords": [
     "audio",
     "speech",
@@ -19,30 +22,99 @@
     "agent",
     "ai-coustics"
   ],
-  "homepage": "https://github.com/ai-coustics/aic-sdk-node#readme",
-  "bugs": {
-    "url": "https://github.com/ai-coustics/aic-sdk-node/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/ai-coustics/aic-sdk-node.git"
-  },
-  "type": "commonjs",
   "files": [
+    "index.d.ts",
     "index.js",
-    "index.node",
-    "README.md",
-    "LICENSE"
+    "LICENSE",
+    "LICENSE.AIC_SDK",
+    "README.md"
   ],
-  "optionalDependencies": {
-    "@ai-coustics/aic-sdk-darwin-arm64": "0.23.0",
-    "@ai-coustics/aic-sdk-darwin-x64": "0.23.0",
-    "@ai-coustics/aic-sdk-linux-arm64-gnu": "0.23.0",
-    "@ai-coustics/aic-sdk-linux-x64-gnu": "0.23.0",
-    "@ai-coustics/aic-sdk-win32-arm64-msvc": "0.23.0",
-    "@ai-coustics/aic-sdk-win32-x64-msvc": "0.23.0"
+  "napi": {
+    "binaryName": "aic-sdk",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc"
+    ]
+  },
+  "engines": {
+    "node": ">= 18"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "bench": "node --import @oxc-node/core/register benchmark/bench.ts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "format": "run-p format:prettier format:rs format:toml",
+    "format:prettier": "prettier . -w",
+    "format:prettier:check": "prettier . --check",
+    "format:toml": "taplo format",
+    "format:rs": "cargo fmt",
+    "lint": "oxlint",
+    "typecheck": "run-p typecheck:*",
+    "typecheck:root": "tsc --noEmit",
+    "typecheck:test": "tsc --noEmit -p __test__/tsconfig.json",
+    "typecheck:bench": "tsc --noEmit -p benchmark/tsconfig.json",
+    "typecheck:examples": "tsc --noEmit -p examples/tsconfig.json",
+    "prepublishOnly": "napi prepublish -t npm",
+    "pretest": "node --import @oxc-node/core/register scripts/fetch-test-models.mjs",
+    "test": "ava",
+    "version": "napi version"
   },
   "devDependencies": {
+    "@napi-rs/cli": "^3.2.0",
+    "@oxc-node/core": "^0.1.0",
+    "@taplo/cli": "^0.7.0",
+    "@types/node": "^26.2.0",
+    "ava": "^8.0.0",
+    "chalk": "^5.6.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.0",
+    "npm-run-all2": "^9.0.0",
+    "oxlint": "^1.14.0",
+    "prettier": "^3.6.2",
+    "tinybench": "^6.0.0",
+    "typescript": "^7.0.0",
     "wavefile": "^11.0.0"
-  }
+  },
+  "lint-staged": {
+    "*.@(js|ts|tsx)": [
+      "oxlint --fix"
+    ],
+    "*.@(js|ts|tsx|yml|yaml|md|json)": [
+      "prettier --write"
+    ],
+    "*.toml": [
+      "taplo format"
+    ]
+  },
+  "ava": {
+    "extensions": [
+      "ts"
+    ],
+    "timeout": "2m",
+    "workerThreads": false,
+    "environmentVariables": {
+      "TS_NODE_PROJECT": "./tsconfig.json"
+    },
+    "nodeArguments": [
+      "--import",
+      "@oxc-node/core/register"
+    ]
+  },
+  "prettier": {
+    "printWidth": 120,
+    "semi": false,
+    "trailingComma": "all",
+    "singleQuote": true,
+    "arrowParens": "always"
+  },
+  "packageManager": "pnpm@11.17.0"
 }

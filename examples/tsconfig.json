@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    // The examples are plain CommonJS `.js`, which the root project ignores. Checking them
+    // here is what catches an example drifting from the generated `index.d.ts`: a renamed
+    // method would otherwise only surface when someone ran the script by hand.
+    // Module settings are inherited: there is no package.json here, so the root's
+    // "type": "commonjs" applies and `nodenext` resolves these as CommonJS.
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    // `wavefile`'s own declarations use `declare module` for a namespace, which TypeScript 7
+    // rejects. Nothing here can fix that, and its API surface is still checked at the call
+    // sites in audio-file.js.
+    "skipLibCheck": true
+  },
+  "include": ["."]
+}
