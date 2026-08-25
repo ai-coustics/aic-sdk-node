@@ -51,7 +51,21 @@ jobs:
       - name: Cargo fmt
         run: cargo fmt -- --check
       - name: Clippy
-        run: cargo clippy
+        run: cargo clippy --locked
+        env:
+          RUSTFLAGS: -D warnings
+      - name: TOML fmt
+        uses: uncenter/setup-taplo@09968a8ae38d66ddd3d23802c44bf6122d7aa991
+      - run: taplo fmt --check
+      - name: Documentation
+        run: cargo doc --locked --document-private-items --all-features --workspace
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: Unused dependencies
+        uses: taiki-e/install-action@c44f6b046f1c29ae5918b1e0bfdbb2f1813836fd
+        with:
+          tool: cargo-shear
+      - run: cargo shear
   build:
     strategy:
       fail-fast: false
