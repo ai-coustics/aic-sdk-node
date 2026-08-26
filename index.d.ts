@@ -85,7 +85,7 @@ export declare class Model {
    * not be modified or deleted while this model, or any object created from it,
    * is alive.
    *
-   * Browse available models at https://artifacts.ai-coustics.io, or fetch one with
+   * Browse available models at <https://artifacts.ai-coustics.io>, or fetch one with
    * {@link Model.download}.
    */
   static fromFile(path: string): Model
