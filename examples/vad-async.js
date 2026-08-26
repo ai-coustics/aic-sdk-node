@@ -67,14 +67,16 @@ async function main() {
   const processor = await new ProcessorAsync(enhancementModel, licenseKey).withConfig(sampleRate, blockSize)
   const processorContext = await processor.getContext()
 
-  let block = Float32Array.from({ length: blockSize }, () => (Math.random() - 0.5) * 0.2)
   for (let i = 0; i < 10; i += 1) {
+    // In a real stream this block comes from the source. What matters is that it is never
+    // the previous iteration's output: enhanced audio must not come back round into the VAD.
+    const block = Float32Array.from({ length: blockSize }, () => (Math.random() - 0.5) * 0.2)
+
     // The VAD sees the input, then the processor enhances it.
     const enhanced = await processor.process(await vad.process(block))
 
-    // Hand the enhanced audio on to playback or an encoder here. The next iteration needs
-    // unenhanced input again, so in a real stream `block` would come from the source.
-    block = enhanced
+    // Hand the enhanced audio on to playback or an encoder from here.
+    console.log(`Block ${i}: speech ${context.isSpeechDetected()}, ${enhanced.length} samples out`)
   }
 
   // The two delays describe different things and are independent: one shifts the audio,
