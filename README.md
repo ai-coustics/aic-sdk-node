@@ -24,24 +24,32 @@ library to install or put on a search path.
 ```javascript
 const { Model, Processor } = require('@ai-coustics/aic-sdk')
 
-// Download a model once, or fetch one manually from https://artifacts.ai-coustics.io
-const modelPath = await Model.download('quail-vf-2.2-s-16khz', './models')
-const model = Model.fromFile(modelPath)
+async function main() {
+  // Download a model once, or fetch one manually from https://artifacts.ai-coustics.io
+  const modelPath = await Model.download('quail-vf-2.2-s-16khz', './models')
+  const model = Model.fromFile(modelPath)
 
-// The model's own settings give the lowest delay
-const sampleRate = model.getOptimalSampleRate()
-const blockSize = model.getOptimalBlockSize(sampleRate)
+  // The model's own settings give the lowest delay
+  const sampleRate = model.getOptimalSampleRate()
+  const blockSize = model.getOptimalBlockSize(sampleRate)
 
-const processor = new Processor(model, process.env.AIC_SDK_LICENSE)
-processor.initialize(sampleRate, blockSize)
+  const processor = new Processor(model, process.env.AIC_SDK_LICENSE)
+  processor.initialize(sampleRate, blockSize)
 
-// Enhance a mono block in place
-const audio = new Float32Array(blockSize)
-processor.process(audio)
+  // Enhance a mono block in place
+  const audio = new Float32Array(blockSize)
+  processor.process(audio)
+}
+
+main()
 ```
 
 Processing is mono. For multichannel audio, mix down to mono or use one processor per
 channel.
+
+The snippets below are fragments, and each one leaves out that surrounding `async function`
+for brevity. Keep it: `await` at the top level of a CommonJS file is a syntax error, and
+several calls here are asynchronous.
 
 Runnable scripts for enhancement, VAD, analysis and whole-file processing, synchronous and
 async, are in [`examples/`](examples).
