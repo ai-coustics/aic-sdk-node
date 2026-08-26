@@ -34,8 +34,15 @@ const asyncProcessors = await Promise.all(
 )
 
 // One block of speech-like content, reused so the benchmark measures processing rather
-// than buffer allocation.
+// than buffer allocation. Nothing writes into it: it stays the reference signal every task
+// starts from.
 const audio = Float32Array.from({ length: blockSize }, (_, i) => Math.sin(i / 10) * 0.5)
+
+// The synchronous call enhances in place, so it gets its own scratch buffer, refilled from
+// `audio` before every iteration. Enhancing one shared buffer would instead feed each
+// iteration the previous one's output, and would leave the async tasks below measuring
+// audio that had already been enhanced hundreds of thousands of times.
+const syncAudio = new Float32Array(blockSize)
 
 // The async calls resolve to a fresh array each time rather than writing in place, so each
 // stream keeps its own block to hand back in.
@@ -55,9 +62,14 @@ const blocksPerIteration = new Map([
 
 const bench = new Bench()
 
-bench.add(syncTask, () => {
-  processor.process(audio)
-})
+bench.add(
+  syncTask,
+  () => {
+    processor.process(syncAudio)
+  },
+  // Hooks run outside the measurement, so the refill does not count towards the timing.
+  { beforeEach: () => syncAudio.set(audio) },
+)
 
 // Same work as above on a worker thread, so the gap against `sync` is the cost of the
 // promise plus the copy in and out.
