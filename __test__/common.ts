@@ -8,20 +8,22 @@ type ModelKind = keyof typeof TEST_MODELS
 /**
  * Resolves a downloaded model fixture.
  *
- * Fixtures are not committed; `pnpm pretest` fetches them into `__test__/data`.
+ * Fixtures are not committed; `pnpm pretest` fetches them into `__test__/data` via
+ * `Model.download()` and records the resolved paths in `paths.json`.
  */
 export function modelPath(kind: ModelKind): string {
-  const model = TEST_MODELS[kind]
-  const modelPath = path.join(TEST_DATA_DIR, model.filename)
-
-  if (!fs.existsSync(modelPath)) {
-    throw new Error(
-      `Test ${kind} model (${model.id}) not found at ${modelPath}. ` +
-        `Run "node scripts/fetch-test-models.mjs" to download it.`,
-    )
+  const sidecar = path.join(TEST_DATA_DIR, 'paths.json')
+  if (!fs.existsSync(sidecar)) {
+    throw new Error(`Test models not downloaded. Run "pnpm build" then "pnpm pretest" to fetch them.`)
   }
 
-  return modelPath
+  const paths = JSON.parse(fs.readFileSync(sidecar, 'utf8')) as Record<string, string>
+  const resolved = paths[kind]
+  if (!resolved || !fs.existsSync(resolved)) {
+    throw new Error(`Test ${kind} model not found. Run "pnpm pretest" to download it.`)
+  }
+
+  return resolved
 }
 
 /**

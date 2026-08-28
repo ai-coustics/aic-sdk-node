@@ -1,43 +1,30 @@
 /**
- * Downloads the `.aicmodel` fixtures the end-to-end tests need.
+ * Downloads the `.aicmodel` fixtures the end-to-end tests need, via the SDK's own
+ * `Model.download()`. Requires a built addon, so run `pnpm build` first (CI downloads
+ * the `.node` artifact before `pnpm test`).
  *
- * The model file format version is tied to the SDK version (see
- * `getCompatibleModelVersion()`), so models are pulled from the matching version directory
- * on artifacts.ai-coustics.io rather than committed to this repository. Files that already
- * exist are left untouched.
+ * The manifest is re-fetched on every call, so the newest compatible model version is
+ * always used. Files that already exist with a matching checksum are left untouched.
+ *
+ * `Model.download()` picks the filename from the manifest (build hash + version), so the
+ * resolved paths are written to `paths.json` for `modelPath()` to read back at test time.
  */
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { Model } from '../index.js'
 import { TEST_DATA_DIR, TEST_MODELS } from '../__test__/models.ts'
-
-async function download(url, destination) {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`GET ${url} failed with ${response.status} ${response.statusText}`)
-  }
-
-  // Write to a temporary file first, so an interrupted download cannot leave a truncated
-  // model behind that later runs would happily reuse.
-  const temporary = `${destination}.part`
-  fs.writeFileSync(temporary, Buffer.from(await response.arrayBuffer()))
-  fs.renameSync(temporary, destination)
-}
 
 async function main() {
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true })
 
-  for (const model of Object.values(TEST_MODELS)) {
-    const destination = path.join(TEST_DATA_DIR, model.filename)
-
-    if (fs.existsSync(destination)) {
-      console.log(`${model.filename} already present, skipping`)
-      continue
-    }
-
-    console.log(`Downloading ${model.id} -> ${model.filename}`)
-    await download(model.url, destination)
+  const paths = {}
+  for (const [kind, model] of Object.entries(TEST_MODELS)) {
+    console.log(`Downloading ${model.id}`)
+    paths[kind] = await Model.download(model.id, TEST_DATA_DIR)
   }
+
+  fs.writeFileSync(path.join(TEST_DATA_DIR, 'paths.json'), JSON.stringify(paths, null, 2))
 }
 
 main().catch((error) => {
