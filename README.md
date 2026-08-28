@@ -1,6 +1,6 @@
 # @ai-coustics/aic-sdk
 
-Node.js bindings for the ai-coustics Audio Intelligence SDK: speech enhancement, voice
+Node.js bindings for the ai-coustics SDK: speech enhancement, voice
 activity detection and audio analysis.
 
 For product documentation see [docs.ai-coustics.com](https://docs.ai-coustics.com).

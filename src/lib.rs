@@ -1,6 +1,6 @@
 #![deny(clippy::all)]
 
-//! Node.js bindings for the ai-coustics Audio Intelligence SDK.
+//! Node.js bindings for the ai-coustics SDK.
 //!
 //! Thin napi-rs layer over the `aic-sdk` crate: the classes here own the corresponding SDK
 //! types directly, so lifetimes, cleanup and thread-safety are handled upstream.
