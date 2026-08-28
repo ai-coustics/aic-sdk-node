@@ -6,7 +6,7 @@
  * Buffering and analysis are deliberately separate calls: {@link Analyzer#buffer} is cheap
  * enough for the audio path, while running the model is not. Analysis therefore comes in
  * two forms: {@link Analyzer#analyzeAsync} on a worker thread, and
- * {@link Analyzer#analyzeBuffered} on the calling thread.
+ * {@link Analyzer#analyze} on the calling thread.
  *
  * Only a fixed span of audio is retained, determined by the model; older audio is
  * discarded as more is buffered.
@@ -40,11 +40,11 @@ export declare class Analyzer {
    * This is the expensive call, and it blocks. Prefer {@link Analyzer#analyzeAsync} unless
    * nothing else is waiting on the event loop.
    */
-  analyzeBuffered(): AnalysisResult
+  analyze(): AnalysisResult
   /**
    * Runs the analysis model over the buffered audio on a worker thread.
    *
-   * Same result as {@link Analyzer#analyzeBuffered}, off the event loop. The SDK's
+   * Same result as {@link Analyzer#analyze}, off the event loop. The SDK's
    * analysis models are too expensive to run on an audio thread, so this is the form to
    * reach for in a server: analysis is occasional, and a promise costs nothing next to
    * the model.
@@ -52,7 +52,7 @@ export declare class Analyzer {
    * {@link Analyzer#buffer} stays synchronous and takes no lock, so audio can keep arriving
    * while an analysis is in flight. The SDK guarantees the collector and analyzer halves
    * are safe to use concurrently. The other methods here do take the analyzer's lock, so
-   * calling {@link Analyzer#analyzeBuffered}, {@link Analyzer#reset} or
+   * calling {@link Analyzer#analyze}, {@link Analyzer#reset} or
    * {@link Analyzer#terminateSession} while this is pending blocks the calling thread until
    * it finishes.
    */
@@ -471,7 +471,7 @@ export declare class VadContext {
 export declare function _setSdkId(id: number): void
 
 /**
- * Scores produced by {@link Analyzer#analyzeBuffered}.
+ * Scores produced by {@link Analyzer#analyze}.
  *
  * Every score runs 0.0 - 1.0. For all of them except `speakerLoudness`, lower means less
  * problematic audio.

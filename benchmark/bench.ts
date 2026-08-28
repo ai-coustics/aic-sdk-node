@@ -84,7 +84,7 @@ bench.add(concurrentTask, async () => {
 })
 
 // Analysis, if an analysis model was supplied. Measured separately from enhancement because
-// `analyzeBuffered` is an occasional call over a span of audio rather than a per-block one, so its
+// `analyze` is an occasional call over a span of audio rather than a per-block one, so its
 // cost is what decides whether `analyzeAsync` is worth reaching for at all: anything in the
 // tens of milliseconds is far too long to sit on the event loop.
 const analysisModelPath = process.env.AIC_SDK_ANALYSIS_MODEL
@@ -96,15 +96,15 @@ if (analysisModelPath) {
   const analyzer = new Analyzer(analysisModel, licenseKey)
   analyzer.initialize(analysisRate, analysisBlock)
 
-  // The model consumes a fixed span, so fill it before measuring. `analyzeBuffered` does not consume
+  // The model consumes a fixed span, so fill it before measuring. `analyze` does not consume
   // the buffer, so one fill serves every iteration.
   const analysisAudio = Float32Array.from({ length: analysisBlock }, (_, i) => Math.sin(i / 10) * 0.5)
   for (let block = 0; block < 200; block += 1) {
     analyzer.buffer(analysisAudio)
   }
 
-  bench.add('analysis: analyzeBuffered (blocking)', () => {
-    analyzer.analyzeBuffered()
+  bench.add('analysis: analyze (blocking)', () => {
+    analyzer.analyze()
   })
 
   // The gap against the blocking call is the promise plus the thread hop. Against a model

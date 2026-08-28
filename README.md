@@ -202,7 +202,7 @@ the audio timeline.
 ## Analysis
 
 Analysis models score audio quality. Buffering is cheap enough for the audio path;
-`analyzeBuffered` runs the model and is not.
+`analyze` runs the model and is not.
 
 ```javascript
 const { Model, Analyzer } = require('@ai-coustics/aic-sdk')
@@ -215,7 +215,7 @@ analyzer.initialize(sampleRate, analysisModel.getOptimalBlockSize(sampleRate))
 
 analyzer.buffer(block)
 
-// Runs the model on a worker thread. `analyzeBuffered()` does the same on the calling thread.
+// Runs the model on a worker thread. `analyze()` does the same on the calling thread.
 const result = await analyzer.analyzeAsync()
 console.log(result.riskScore, result.noise, result.speakerReverb)
 ```
@@ -223,7 +223,7 @@ console.log(result.riskScore, result.noise, result.speakerReverb)
 `buffer` is cheap enough for the audio path; running the model is not, so it is a separate
 call with two forms. `analyzeAsync` is the one to reach for in a server: analysis is
 occasional, so the promise costs nothing next to the model, and the event loop stays free.
-`analyzeBuffered` blocks and suits a CLI or a worker thread.
+`analyze` blocks and suits a CLI or a worker thread.
 
 Only that one call moves off-thread, which is why there is no `AnalyzerAsync` class to match
 `ProcessorAsync`. `buffer` stays synchronous, takes no lock, and can be called while an

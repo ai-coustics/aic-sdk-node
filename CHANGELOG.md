@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.24.0
+## Unreleased
 
 Rewritten on [napi-rs](https://napi.rs), on top of the public `aic-sdk` Rust crate.
 
@@ -39,7 +39,7 @@ The API was modernized:
 | `OtelConfig.enabled()`           | `{ enable: true }`          |
 
 - `analyzerPair()` and the separate `Collector` are replaced by a single `Analyzer` class
-  with `buffer()` and `analyzeBuffered()`. The SDK separates collection from analysis so the
+  with `buffer()` and `analyze()`. The SDK separates collection from analysis so the
   halves can live on different threads; that does not apply in Node, where an instance cannot
   cross into another worker.
 - `OtelConfig` is a plain object (`{ enable, sessionId?, exportIntervalMs? }`) rather than a

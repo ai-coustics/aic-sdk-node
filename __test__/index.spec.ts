@@ -318,7 +318,7 @@ test('analyzer scores buffered audio', (t) => {
   analyzer.initialize(sampleRate, blockSize)
   analyzer.buffer(new Float32Array(blockSize))
 
-  const result = analyzer.analyzeBuffered()
+  const result = analyzer.analyze()
 
   for (const [name, score] of Object.entries(result)) {
     t.is(typeof score, 'number', `${name} should be a number`)
@@ -361,7 +361,7 @@ test('async analysis returns the same scores as the blocking call', async (t) =>
 
   // Same buffered audio and no state change between the two, so the worker thread must
   // produce exactly what the calling thread does.
-  const expected = analyzer.analyzeBuffered()
+  const expected = analyzer.analyze()
   const actual = await analyzer.analyzeAsync()
 
   t.deepEqual(actual, expected)

@@ -2,7 +2,7 @@
 //
 // Buffering and analysis are deliberately separate calls: `buffer` is cheap enough for the
 // audio path, while running the model is not. Analysis therefore comes in two forms, both
-// shown below: `analyzeAsync` on a worker thread and `analyzeBuffered` on the calling thread.
+// shown below: `analyzeAsync` on a worker thread and `analyze` on the calling thread.
 //
 // There is no separate `AnalyzerAsync` class, because only one call moves off-thread:
 // `buffer` stays synchronous so it stays cheap, and can be called while an analysis runs.
@@ -68,10 +68,10 @@ async function main() {
 
   // The blocking form, for a CLI or a worker thread where nothing is waiting on the loop.
   const syncStart = performance.now()
-  analyzer.analyzeBuffered()
+  analyzer.analyze()
   const syncElapsed = performance.now() - syncStart
 
-  console.log(`\nanalyzeAsync: ${asyncElapsed.toFixed(1)} ms, analyzeBuffered: ${syncElapsed.toFixed(1)} ms`)
+  console.log(`\nanalyzeAsync: ${asyncElapsed.toFixed(1)} ms, analyze: ${syncElapsed.toFixed(1)} ms`)
   // The blocking call would have held the event loop for its whole duration; the async one
   // does not, which is what these ticks show.
   console.log(`Timer fired ${ticks} times during analyzeAsync`)
