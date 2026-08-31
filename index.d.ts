@@ -437,7 +437,7 @@ export declare class VadContext {
    * (speech hold, sensitivity thresholding), which is useful for building your own
    * abstractions on top. The same latency notes apply.
    */
-  rawVadProbability(): number
+  getRawVadProbability(): number
   /**
    * How far the prediction lags its input, in samples at the initialized rate.
    *

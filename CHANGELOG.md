@@ -37,6 +37,7 @@ The API was modernized:
 | `analyzerPair(model, key)`       | `new Analyzer(model, key)`  |
 | `collector.buffer(...)`          | `analyzer.buffer(...)`      |
 | `OtelConfig.enabled()`           | `{ enable: true }`          |
+| `VadContext.rawVadProbability()` | `VadContext.getRawVadProbability()` |
 
 - `analyzerPair()` and the separate `Collector` are replaced by a single `Analyzer` class
   with `buffer()` and `analyze()`. The SDK separates collection from analysis so the

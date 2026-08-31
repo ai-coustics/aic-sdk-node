@@ -48,7 +48,7 @@ async function main() {
   }
 
   console.log('\nSpeech detected:', context.isSpeechDetected())
-  console.log('Raw probability:', context.rawVadProbability().toFixed(4))
+  console.log('Raw probability:', context.getRawVadProbability().toFixed(4))
 
   // Detection and enhancement together.
   //

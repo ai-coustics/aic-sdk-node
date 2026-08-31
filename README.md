@@ -173,7 +173,7 @@ if (context.isSpeechDetected()) {
 }
 
 // Raw model output, before speech-hold and thresholding
-console.log(context.rawVadProbability())
+console.log(context.getRawVadProbability())
 ```
 
 ### Run the VAD on the original audio

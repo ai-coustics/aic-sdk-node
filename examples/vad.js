@@ -57,7 +57,7 @@ async function main() {
 
   console.log('\nSpeech detected:', context.isSpeechDetected())
   // The model's raw output, before speech-hold and thresholding.
-  console.log('Raw probability:', context.rawVadProbability().toFixed(4))
+  console.log('Raw probability:', context.getRawVadProbability().toFixed(4))
 
   // Clear internal state, including the published prediction, on a discontinuity or seek.
   context.reset()

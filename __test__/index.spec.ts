@@ -272,7 +272,7 @@ test('async vad hands the block back unmodified and reports no speech for silenc
 
   await vad.process(new Float32Array(blockSize))
   t.false(context.isSpeechDetected(), 'silence must not be reported as speech')
-  t.true(context.rawVadProbability() >= 0 && context.rawVadProbability() <= 1)
+  t.true(context.getRawVadProbability() >= 0 && context.getRawVadProbability() <= 1)
 })
 
 test('vad reports no speech for silence and leaves audio untouched', (t) => {
@@ -294,7 +294,7 @@ test('vad reports no speech for silence and leaves audio untouched', (t) => {
 
   vad.process(new Float32Array(blockSize))
   t.false(context.isSpeechDetected(), 'silence must not be reported as speech')
-  t.true(context.rawVadProbability() >= 0 && context.rawVadProbability() <= 1)
+  t.true(context.getRawVadProbability() >= 0 && context.getRawVadProbability() <= 1)
   t.notThrows(() => context.reset())
 })
 

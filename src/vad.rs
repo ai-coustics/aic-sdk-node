@@ -157,7 +157,7 @@ impl VadContext {
   /// (speech hold, sensitivity thresholding), which is useful for building your own
   /// abstractions on top. The same latency notes apply.
   #[napi]
-  pub fn raw_vad_probability(&self) -> f64 {
+  pub fn get_raw_vad_probability(&self) -> f64 {
     self.inner.raw_vad_probability().into()
   }
 
