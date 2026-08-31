@@ -31,12 +31,12 @@ the binding and its type declarations are now generated from annotated Rust.
 
 The API was modernized:
 
-| 0.23                             | 0.24                        |
-| -------------------------------- | --------------------------- |
-| `Model.download(...)` (blocking) | `await Model.download(...)` |
-| `analyzerPair(model, key)`       | `new Analyzer(model, key)`  |
-| `collector.buffer(...)`          | `analyzer.buffer(...)`      |
-| `OtelConfig.enabled()`           | `{ enable: true }`          |
+| 0.23                             | 0.24                                |
+| -------------------------------- | ----------------------------------- |
+| `Model.download(...)` (blocking) | `await Model.download(...)`         |
+| `analyzerPair(model, key)`       | `new Analyzer(model, key)`          |
+| `collector.buffer(...)`          | `analyzer.buffer(...)`              |
+| `OtelConfig.enabled()`           | `{ enable: true }`                  |
 | `VadContext.rawVadProbability()` | `VadContext.getRawVadProbability()` |
 
 - `analyzerPair()` and the separate `Collector` are replaced by a single `Analyzer` class
