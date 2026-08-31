@@ -1,5 +1,60 @@
 # Changelog
 
+## Unreleased
+
+Rewritten on [napi-rs](https://napi.rs), on top of the public `aic-sdk` Rust crate.
+
+The previous release was a raw native addon exporting low-level primitives, wrapped in a
+hand-written JavaScript ergonomics layer and documented only with JSDoc. That layer is gone:
+the binding and its type declarations are now generated from annotated Rust.
+
+### Added
+
+- **TypeScript declarations.** `index.d.ts` ships with the package, with doc comments on
+  every class, method and enum member. Previous releases published no types.
+- **`Analyzer.analyzeAsync`**, running the analysis model on a worker thread. The SDK's
+  analysis models are too expensive for an audio thread, and Node cannot move the analyzer
+  into a worker the way the Rust SDK's collector/analyzer split allows, so this is how that
+  capability is reached here. There is no `AnalyzerAsync` class: only this one call moves
+  off-thread, and `buffer` stays synchronous and lock-free so audio can keep arriving while
+  an analysis is in flight.
+- **`ProcessorAsync` and `VadAsync`**, mirroring the Rust SDK. Each call returns a promise
+  and runs on Node's libuv thread pool, keeping enhancement and detection off the event
+  loop. `process` copies its input and resolves to the samples rather than writing in place,
+  so the caller's array stays valid while the promise is pending. Parallelism is across
+  instances: give each stream its own, and raise `UV_THREADPOOL_SIZE` to run more than four
+  at once.
+- `Model.download` is asynchronous and resolves to the model path, so a cold download no
+  longer blocks the event loop.
+
+### Changed
+
+The API was modernized:
+
+| 0.23                             | 0.24                                |
+| -------------------------------- | ----------------------------------- |
+| `Model.download(...)` (blocking) | `await Model.download(...)`         |
+| `analyzerPair(model, key)`       | `new Analyzer(model, key)`          |
+| `collector.buffer(...)`          | `analyzer.buffer(...)`              |
+| `OtelConfig.enabled()`           | `{ enable: true }`                  |
+| `VadContext.rawVadProbability()` | `VadContext.getRawVadProbability()` |
+
+- `analyzerPair()` and the separate `Collector` are replaced by a single `Analyzer` class
+  with `buffer()` and `analyze()`. The SDK separates collection from analysis so the
+  halves can live on different threads; that does not apply in Node, where an instance cannot
+  cross into another worker.
+- `OtelConfig` is a plain object (`{ enable, sessionId?, exportIntervalMs? }`) rather than a
+  class with static factories, still passed as the optional third constructor argument.
+- `ProcessorParameter` and `VadParameter` are real enums with stable numeric values
+  (`Bypass = 0`, `EnhancementLevel = 1`; `SpeechHoldDuration = 0`, `Sensitivity = 1`,
+  `MinimumSpeechDuration = 2`).
+- Minimum supported Node version is 18.
+
+### Removed
+
+- `FileAnalyzer`. Its convenience windowing is not yet reimplemented on the new binding;
+  window over `Analyzer` directly in the meantime.
+
 ## 0.23.0 - 2026-08-11
 
 This release updates the underlying ai-coustics SDK to 0.23.0.
@@ -13,13 +68,13 @@ with a "model version is not supported" error. See the
 [compatibility matrix](https://docs.ai-coustics.com/reference/sdk/compatibility-matrix).
 
 ```javascript
-const { Model, getCompatibleModelVersion } = require("@ai-coustics/aic-sdk");
+const { Model, getCompatibleModelVersion } = require('@ai-coustics/aic-sdk')
 
 // Reports the model file version this SDK build expects.
-console.log(getCompatibleModelVersion()); // 7
+console.log(getCompatibleModelVersion()) // 7
 
 // Re-download the models your integration uses.
-const modelPath = Model.download("quail-vf-2.2-s-16khz", "./models");
+const modelPath = Model.download('quail-vf-2.2-s-16khz', './models')
 ```
 
 ### New Features
@@ -32,13 +87,13 @@ this SDK version any more.
 Before:
 
 ```javascript
-const modelPath = Model.download("tyto-l-16khz", "./models");
+const modelPath = Model.download('tyto-l-16khz', './models')
 ```
 
 After:
 
 ```javascript
-const modelPath = Model.download("tyto-1.1-l-16khz", "./models");
+const modelPath = Model.download('tyto-1.1-l-16khz', './models')
 ```
 
 #### Analysis result fields changed
@@ -97,24 +152,24 @@ Before:
 
 ```javascript
 // Stereo in, stereo out. The SDK mixed both channels down to mono internally.
-const processor = new Processor(model, licenseKey);
-processor.initialize(sampleRate, 2, numFrames, false);
-processor.processPlanar([left, right]);
+const processor = new Processor(model, licenseKey)
+processor.initialize(sampleRate, 2, numFrames, false)
+processor.processPlanar([left, right])
 ```
 
 After:
 
 ```javascript
-const processor = new Processor(model, licenseKey);
-processor.initialize(sampleRate, blockSize, false);
+const processor = new Processor(model, licenseKey)
+processor.initialize(sampleRate, blockSize, false)
 
 // Downmix to mono yourself, then process a single buffer in place.
-const mono = new Float32Array(blockSize);
+const mono = new Float32Array(blockSize)
 for (let i = 0; i < blockSize; i++) {
-  mono[i] = 0.5 * (left[i] + right[i]);
+  mono[i] = 0.5 * (left[i] + right[i])
 }
 
-processor.process(mono);
+processor.process(mono)
 ```
 
 If you need per-channel output instead of a downmix, create one processor per channel and call
@@ -146,35 +201,35 @@ Before:
 
 ```javascript
 // One model, one processor: enhancement and VAD were coupled.
-const processor = new Processor(model, licenseKey);
-processor.initialize(sampleRate, 1, numFrames, false);
+const processor = new Processor(model, licenseKey)
+processor.initialize(sampleRate, 1, numFrames, false)
 
-const vadContext = processor.getVadContext();
-vadContext.setParameter(VadParameter.Sensitivity, 5.0); // energy threshold
+const vadContext = processor.getVadContext()
+vadContext.setParameter(VadParameter.Sensitivity, 5.0) // energy threshold
 
 // The VAD updated as a side effect of enhancement.
-processor.processInterleaved(audio);
+processor.processInterleaved(audio)
 
-console.log("Speech detected:", vadContext.isSpeechDetected());
+console.log('Speech detected:', vadContext.isSpeechDetected())
 ```
 
 After:
 
 ```javascript
 // Load a dedicated VAD model and create a `Vad` from it.
-const vadModel = Model.fromFile("path/to/vad_model.aicmodel");
+const vadModel = Model.fromFile('path/to/vad_model.aicmodel')
 
 // Throws if the model is not a VAD model.
-const vad = new Vad(vadModel, licenseKey);
-vad.initialize(sampleRate, blockSize, false);
+const vad = new Vad(vadModel, licenseKey)
+vad.initialize(sampleRate, blockSize, false)
 
-const vadContext = vad.getContext();
-vadContext.setParameter(VadParameter.Sensitivity, 0.8); // probability
+const vadContext = vad.getContext()
+vadContext.setParameter(VadParameter.Sensitivity, 0.8) // probability
 
 // The VAD is driven explicitly and does not modify the audio.
-vad.process(audio);
+vad.process(audio)
 
-console.log("Speech detected:", vadContext.isSpeechDetected());
+console.log('Speech detected:', vadContext.isSpeechDetected())
 ```
 
 ##### Run the VAD on the original audio
@@ -185,8 +240,8 @@ them:
 
 ```javascript
 // Recommended: both see the same original input block.
-vad.process(audio); // reads the block, does not modify it
-processor.process(audio); // enhances the block in place
+vad.process(audio) // reads the block, does not modify it
+processor.process(audio) // enhances the block in place
 ```
 
 `Vad.process()` leaves the buffer untouched, so calling it on the same buffer before
@@ -204,15 +259,15 @@ queries are now named after what they actually report:
 - `ProcessorContext.getOutputDelay()` is now `ProcessorContext.getAudioDelay()`. It is an **audio**
   delay: the enhanced samples leave `Processor.process()` that many samples behind their input.
 - `VadContext.getPredictionDelay()` replaces the processor-driven delay query for the VAD. It is a
-  **prediction** delay and is *not* applied to the audio, since `Vad.process()` leaves the buffer
+  **prediction** delay and is _not_ applied to the audio, since `Vad.process()` leaves the buffer
   untouched. It tells you how far behind its own input the published prediction is, so you can line
   speech decisions up with the audio timeline.
 
 With both fed from the same input block, the two delays are independent of each other:
 
 ```javascript
-const audioDelay = procCtx.getAudioDelay();
-const predictionDelay = vadContext.getPredictionDelay();
+const audioDelay = procCtx.getAudioDelay()
+const predictionDelay = vadContext.getPredictionDelay()
 
 // The enhanced audio lags the input by `audioDelay`.
 // The VAD prediction lags the same input by `predictionDelay`.
@@ -239,7 +294,7 @@ See [`examples/vad.js`](examples/vad.js) for a complete example.
 
   ```javascript
   // Ends the telemetry session without waiting for the object to be collected.
-  processor.terminateSession();
+  processor.terminateSession()
   ```
 
 ### Bug Fixes
@@ -262,7 +317,7 @@ Reduced the necessary output delay of the `Processor` when using `allowVariableF
 
 ### New Features
 
-This release includes several new APIs for running our newest audio intelligence model, *Tyto*.
+This release includes several new APIs for running our newest audio intelligence model, _Tyto_.
 
 Analysis models score audio quality instead of enhancing it. Each result reports a headline
 `riskScore` alongside individual measures for speaker reverb, speaker loudness, interfering
@@ -270,8 +325,9 @@ speech, media speech, noise and packet loss.
 
 The new APIs introduce two new concepts: the `Collector` and the `Analyzer`, created together
 with `analyzerPair`.
- - The `Collector` is designed to be placed in the audio thread, buffering audio chunks for later analysis.
- - The `Analyzer` is designed to be run separately. Analysis models are computationally expensive and cannot run in the audio thread. The analyzer has access to the audio buffered by the collector, and it can access it safely across threads.
+
+- The `Collector` is designed to be placed in the audio thread, buffering audio chunks for later analysis.
+- The `Analyzer` is designed to be run separately. Analysis models are computationally expensive and cannot run in the audio thread. The analyzer has access to the audio buffered by the collector, and it can access it safely across threads.
 
 Initialize the `Collector` with the same configuration as your existing `Processor` and you can
 call the `collector.buffer*` methods in the same manner as the `processor.process*` methods.
@@ -353,7 +409,7 @@ collector/analyzer pair yourself.
 
 ### Fixes
 
-- Fixed an issue causing the VAD's state to be reset on every process* call.
+- Fixed an issue causing the VAD's state to be reset on every process\* call.
 
 ## 0.13.0 - 2026-01-20
 
@@ -415,37 +471,37 @@ This release comes with a number of new features and several breaking changes. M
 
 ```javascript
 // Old (0.12)
-const { Model, ModelType, EnhancementParameter, VadParameter } = require("@ai-coustics/aic-sdk");
+const { Model, ModelType, EnhancementParameter, VadParameter } = require('@ai-coustics/aic-sdk')
 
-const model = new Model(ModelType.QuailL48, licenseKey);
-model.initialize(48000, 1, 480, false);
-model.setParameter(EnhancementParameter.EnhancementLevel, 0.8);
-model.processInterleaved(audio);
+const model = new Model(ModelType.QuailL48, licenseKey)
+model.initialize(48000, 1, 480, false)
+model.setParameter(EnhancementParameter.EnhancementLevel, 0.8)
+model.processInterleaved(audio)
 
-const vad = model.createVad();
-vad.setParameter(VadParameter.Sensitivity, 5.0);
+const vad = model.createVad()
+vad.setParameter(VadParameter.Sensitivity, 5.0)
 if (vad.isSpeechDetected()) {
-  console.log("Speech!");
+  console.log('Speech!')
 }
 
 // New (0.13)
-const { Model, Processor, ProcessorParameter, VadParameter } = require("@ai-coustics/aic-sdk");
+const { Model, Processor, ProcessorParameter, VadParameter } = require('@ai-coustics/aic-sdk')
 
-const modelPath = Model.download("sparrow-l-48khz", "/tmp/models");
-const model = Model.fromFile(modelPath);
+const modelPath = Model.download('sparrow-l-48khz', '/tmp/models')
+const model = Model.fromFile(modelPath)
 // Or load directly: const model = Model.fromFile("/path/to/sparrow-l-48khz.aicmodel");
 
-const processor = new Processor(model, licenseKey);
-processor.initialize(48000, 1, 480, false);
+const processor = new Processor(model, licenseKey)
+processor.initialize(48000, 1, 480, false)
 
-const ctx = processor.getProcessorContext();
-ctx.setParameter(ProcessorParameter.EnhancementLevel, 0.8);
-processor.processInterleaved(audio);
+const ctx = processor.getProcessorContext()
+ctx.setParameter(ProcessorParameter.EnhancementLevel, 0.8)
+processor.processInterleaved(audio)
 
-const vad = processor.getVadContext();
-vad.setParameter(VadParameter.Sensitivity, 5.0);
+const vad = processor.getVadContext()
+vad.setParameter(VadParameter.Sensitivity, 5.0)
 if (vad.isSpeechDetected()) {
-  console.log("Speech!");
+  console.log('Speech!')
 }
 ```
 
@@ -478,17 +534,21 @@ if (vad.isSpeechDetected()) {
 ### New Features
 
 **Speech Enhancement & Models:**
+
 - **Quail STT Model** (v0.10.0): New speech enhancement model optimized for human-to-machine interaction (voice agents, speech-to-text), operates at 16 kHz native sample rate with fixed enhancement parameters
 - **Voice Activity Detection (VAD)** (v0.9.0): Quail-based VAD that automatically calculates voice activity predictions from model output
 
 **Platform Support:**
+
 - **Windows ARM64 support** (v0.9.1)
 
 **Licensing & Usage:**
+
 - **Self-Service Licenses** (v0.8.0): Direct license access from development portal
 - **Usage-Based Telemetry** (v0.8.0): Collects processing time and diagnostic data (no audio content collected). Requires constant internet connection; offline licenses available on request
 
 **Processing Improvements:**
+
 - **Variable Frame Processing** (v0.7.0): Support for variable number of frames per call (results in higher processing delay when enabled)
 - **Bypass Parameter** (v0.7.0): New parameter to bypass audio processing while preserving algorithmic delay for seamless transitions
 

@@ -1,56 +1,102 @@
-use neon::{
-    prelude::{Context, FunctionContext},
-    result::{JsResult, NeonResult},
-    types::{Finalize, JsBox, JsNumber, JsString},
-};
+use crate::error::{JsAicError, Result, map_err};
 
+use napi::{Env, Task, bindgen_prelude::AsyncTask};
+use napi_derive::napi;
+
+/// A loaded ai-coustics model.
+///
+/// One model can back multiple processors, VADs and analyzers, according to its type.
+/// The underlying model data is kept alive by every object created from it through
+/// internal reference counting, so this handle may be released first.
+#[napi]
 pub struct Model {
-    pub(crate) inner: aic_sdk::Model<'static>,
+  // `from_file` memory-maps the file rather than borrowing a caller-owned buffer, so
+  // the SDK model is `'static` and needs no lifetime plumbing here.
+  pub(crate) inner: aic_sdk::Model<'static>,
 }
 
-impl Finalize for Model {}
-
+#[napi]
 impl Model {
-    pub fn from_file(mut cx: FunctionContext) -> JsResult<JsBox<Model>> {
-        let path = cx.argument::<JsString>(0)?.value(&mut cx);
-        let inner = aic_sdk::Model::from_file(path).or_else(|e| cx.throw_error(e.to_string()))?;
-        Ok(cx.boxed(Model { inner }))
-    }
+  /// Loads a model from a `.aicmodel` file.
+  ///
+  /// The model data is memory-mapped, not copied into the process, so the file must
+  /// not be modified or deleted while this model, or any object created from it,
+  /// is alive.
+  ///
+  /// Browse available models at <https://artifacts.ai-coustics.io>, or fetch one with
+  /// {@link Model.download}.
+  #[napi(factory)]
+  pub fn from_file(path: String) -> Result<Self> {
+    Ok(Self {
+      inner: map_err(aic_sdk::Model::from_file(path))?,
+    })
+  }
 
-    pub fn download(mut cx: FunctionContext) -> JsResult<JsString> {
-        let model_id = cx.argument::<JsString>(0)?.value(&mut cx);
-        let download_dir = cx.argument::<JsString>(1)?.value(&mut cx);
-        let path = aic_sdk::Model::download(&model_id, download_dir)
-            .or_else(|e| cx.throw_error(e.to_string()))?;
-        Ok(cx.string(path.to_str().expect("Path can be converted to string")))
-    }
+  /// Downloads a model from the ai-coustics artifact CDN and resolves to its path.
+  ///
+  /// The manifest is re-fetched on every call so the newest compatible model version
+  /// is always used. An existing file with a matching checksum is not re-downloaded;
+  /// one with a mismatching checksum is replaced.
+  ///
+  /// The download runs on a worker thread, so it does not block the event loop.
+  // napi cannot infer an `AsyncTask`'s resolved type, so it is declared explicitly;
+  // without this the generated d.ts says `Promise<unknown>`.
+  #[napi(ts_return_type = "Promise<string>")]
+  pub fn download(model_id: String, download_dir: String) -> AsyncTask<DownloadTask> {
+    AsyncTask::new(DownloadTask {
+      model_id,
+      download_dir,
+    })
+  }
 
-    pub fn get_id(mut cx: FunctionContext) -> JsResult<JsString> {
-        let this = cx.argument::<JsBox<Model>>(0)?;
-        let id = this.inner.id();
-        Ok(cx.string(id))
-    }
+  /// The model identifier, e.g. `quail-vf-2.2-s-16khz`.
+  #[napi]
+  pub fn get_id(&self) -> String {
+    self.inner.id().to_owned()
+  }
 
-    pub fn get_optimal_sample_rate(mut cx: FunctionContext) -> JsResult<JsNumber> {
-        let this = cx.argument::<JsBox<Model>>(0)?;
-        let sample_rate = this.inner.optimal_sample_rate();
-        Ok(cx.number(sample_rate))
-    }
+  /// The sample rate in Hz the model was trained for.
+  ///
+  /// Audio at any rate can be processed, but a model only enhances frequencies up to
+  /// its own Nyquist limit, so matching this rate gives the best quality.
+  #[napi]
+  pub fn get_optimal_sample_rate(&self) -> u32 {
+    self.inner.optimal_sample_rate()
+  }
 
-    pub fn get_optimal_block_size(mut cx: FunctionContext) -> JsResult<JsNumber> {
-        let this = cx.argument::<JsBox<Model>>(0)?;
-        let sample_rate = cx.argument::<JsNumber>(1)?.value(&mut cx) as u32;
-        let block_size = this.inner.optimal_block_size(sample_rate);
-        Ok(cx.number(block_size as f64))
-    }
+  /// The block size that avoids internal buffering at `sampleRate`.
+  ///
+  /// Any other block size adds buffering latency on top of the base processing delay.
+  /// The value changes with the sample rate, because the model works on a fixed time
+  /// window: a 10 ms window is 480 samples at 48 kHz but 160 at 16 kHz.
+  #[napi]
+  pub fn get_optimal_block_size(&self, sample_rate: u32) -> u32 {
+    // The SDK reports sizes as `usize`, which napi would marshal as a JS BigInt.
+    // A BigInt block size would throw on `new Float32Array(n)` and on arithmetic
+    // against plain numbers, so it crosses the boundary as u32. Block sizes are a
+    // few thousand samples at most.
+    self.inner.optimal_block_size(sample_rate) as u32
+  }
 }
 
-pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()> {
-    cx.export_function("modelFromFile", Model::from_file)?;
-    cx.export_function("modelDownload", Model::download)?;
-    cx.export_function("modelGetId", Model::get_id)?;
-    cx.export_function("modelGetOptimalSampleRate", Model::get_optimal_sample_rate)?;
-    cx.export_function("modelGetOptimalBlockSize", Model::get_optimal_block_size)?;
+/// Runs the blocking model download on the libuv thread pool.
+pub struct DownloadTask {
+  model_id: String,
+  download_dir: String,
+}
 
-    Ok(())
+impl Task for DownloadTask {
+  type Output = String;
+  type JsValue = String;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    let path = aic_sdk::Model::download(&self.model_id, &self.download_dir)
+      .map_err(|error| napi::Error::from(JsAicError(error)))?;
+
+    Ok(path.to_string_lossy().into_owned())
+  }
+
+  fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+    Ok(output)
+  }
 }
