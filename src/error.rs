@@ -32,3 +32,11 @@ pub type Result<T> = napi::Result<T>;
 pub fn map_err<T>(result: std::result::Result<T, AicError>) -> Result<T> {
   result.map_err(|error| JsAicError(error).into())
 }
+
+/// The error thrown by any method called after `dispose()`.
+pub fn disposed_error(class: &str) -> napi::Error {
+  napi::Error::new(
+    napi::Status::GenericFailure,
+    format!("{class} has been disposed"),
+  )
+}

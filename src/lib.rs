@@ -9,6 +9,7 @@ use napi_derive::napi;
 
 mod analyzer;
 mod error;
+mod mem;
 mod model;
 mod processor;
 mod processor_async;

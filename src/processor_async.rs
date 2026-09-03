@@ -1,16 +1,20 @@
 use crate::{
   claim_sdk_id,
-  error::{Result, map_err},
+  error::{Result, disposed_error, map_err},
+  mem,
   model::Model,
   processor::{OtelConfig, ProcessorContext, audio_config},
 };
 
 use napi::{
   Env, Task,
-  bindgen_prelude::{AsyncTask, Float32Array},
+  bindgen_prelude::{AsyncTask, Float32Array, ObjectFinalize},
 };
 use napi_derive::napi;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{
+  Arc, Mutex, MutexGuard,
+  atomic::{AtomicI64, Ordering},
+};
 
 /// The SDK object shared between a binding class and the tasks it spawns.
 ///
@@ -26,6 +30,83 @@ pub(crate) fn lock<T>(shared: &Mutex<T>) -> MutexGuard<'_, T> {
   shared
     .lock()
     .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// An SDK object whose native lifetime several JS handles share, plus the external-memory
+/// claims those handles have made against it.
+///
+/// `ProcessorAsync` and `VadAsync` can hand out second JS handles onto the same native
+/// object (`withConfig`), and each handle reports the object's footprint at construction
+/// and gives it back at finalization. The claims therefore live on the shared object, and
+/// are drained exactly once — by whichever comes first, `dispose()` or the first
+/// finalizer — so the ledger always balances.
+pub(crate) struct Held<T> {
+  inner: Mutex<Option<T>>,
+  outstanding: AtomicI64,
+}
+
+impl<T> Held<T> {
+  pub(crate) fn new(inner: T) -> Self {
+    Self {
+      inner: Mutex::new(Some(inner)),
+      outstanding: AtomicI64::new(0),
+    }
+  }
+
+  /// Records `bytes` of external memory claimed by a JS handle onto this object.
+  pub(crate) fn claim(&self, bytes: i64) {
+    self.outstanding.fetch_add(bytes, Ordering::SeqCst);
+  }
+
+  /// Gives back this handle's claim, if the claims are still outstanding. A no-op once
+  /// `release()` drained the ledger.
+  pub(crate) fn unclaim(&self, env: Env, bytes: i64) {
+    let previous = self.outstanding.fetch_sub(bytes, Ordering::SeqCst);
+    if previous >= bytes {
+      mem::adjust(env, -bytes);
+    } else {
+      // Claims were already drained; undo the underflow so the ledger stays at zero.
+      self.outstanding.fetch_add(bytes, Ordering::SeqCst);
+    }
+  }
+
+  /// Destroys the native object, if it is still live, giving back every outstanding
+  /// claim exactly once. Idempotent.
+  ///
+  /// Called by `dispose()`, which destroys the object regardless of other handles, and
+  /// by the finalizer of the last surviving handle.
+  pub(crate) fn release(&self, env: Env) {
+    if lock(&self.inner).take().is_some() {
+      mem::adjust(env, -self.outstanding.swap(0, Ordering::SeqCst));
+    }
+  }
+
+  /// Whether the native object is still live.
+  pub(crate) fn is_live(&self) -> bool {
+    lock(&self.inner).is_some()
+  }
+
+  /// Runs `f` with the native object, or fails with the disposed error.
+  pub(crate) fn with<R>(&self, class: &str, f: impl FnOnce(&mut T) -> Result<R>) -> Result<R> {
+    let mut guard = lock(&self.inner);
+    let inner = guard.as_mut().ok_or_else(|| disposed_error(class))?;
+    f(inner)
+  }
+}
+
+impl<T> Drop for Held<T> {
+  fn drop(&mut self) {
+    // Frees the native object when the last `Arc` handle goes away without any
+    // finalizer having released it — e.g. the last JS handle was collected while a task
+    // still held a clone. Freeing matters more than exact bookkeeping here: the
+    // outstanding claim, if any, stays reported, which only makes V8 a little more
+    // eager for the rest of the process.
+    match self.inner.get_mut() {
+      Ok(slot) => slot.take(),
+      // Dropping cannot fail on a poisoned lock: the guard's contents are still ours.
+      Err(poisoned) => poisoned.into_inner().take(),
+    };
+  }
 }
 
 /// Speech enhancement processor that keeps its work off the main thread.
@@ -47,9 +128,23 @@ pub(crate) fn lock<T>(shared: &Mutex<T>) -> MutexGuard<'_, T> {
 /// Raise `UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel. The
 /// SDK's own `AIC_NUM_THREADS` does not apply here: that variable sizes a rayon pool this
 /// binding deliberately does not use.
-#[napi]
+#[napi(custom_finalize)]
 pub struct ProcessorAsync {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<Held<aic_sdk::Processor<'static>>>,
+}
+
+impl ObjectFinalize for ProcessorAsync {
+  fn finalize(self, env: Env) -> Result<()> {
+    if Arc::strong_count(&self.inner) == 1 {
+      // Last handle onto the native object: destroy it and drain every claim.
+      self.inner.release(env);
+    } else {
+      // Other handles (or in-flight tasks) keep the object alive; only this handle's
+      // claim goes back.
+      self.inner.unclaim(env, mem::PROCESSOR_BYTES);
+    }
+    Ok(())
+  }
 }
 
 #[napi]
@@ -62,17 +157,35 @@ impl ProcessorAsync {
   /// Telemetry follows the runtime environment; pass `otelConfig` to override it for this
   /// instance.
   #[napi(constructor)]
-  pub fn new(model: &Model, license_key: String, otel_config: Option<OtelConfig>) -> Result<Self> {
+  pub fn new(
+    env: Env,
+    model: &Model,
+    license_key: String,
+    otel_config: Option<OtelConfig>,
+  ) -> Result<Self> {
+    let model_inner = model.sdk()?;
     claim_sdk_id();
     let inner = match otel_config {
       Some(config) => {
-        aic_sdk::Processor::with_otel_config(&model.inner, &license_key, &config.into())
+        aic_sdk::Processor::with_otel_config(model_inner, &license_key, &config.into())
       }
-      None => aic_sdk::Processor::new(&model.inner, &license_key),
+      None => aic_sdk::Processor::new(model_inner, &license_key),
     };
-    Ok(Self {
-      inner: Arc::new(Mutex::new(map_err(inner)?)),
-    })
+    let inner = Arc::new(Held::new(map_err(inner)?));
+    inner.claim(mem::PROCESSOR_BYTES);
+    mem::adjust(env, mem::PROCESSOR_BYTES);
+
+    Ok(Self { inner })
+  }
+
+  /// Destroys the native processor immediately, releasing its memory and telemetry
+  /// session without waiting for garbage collection.
+  ///
+  /// Every later method throws; calling `dispose()` again does nothing. The synchronous
+  /// variant blocks until in-flight work on the libuv pool finishes.
+  #[napi]
+  pub fn dispose(&self, env: Env) {
+    self.inner.release(env);
   }
 
   /// Initializes the processor and resolves to a handle onto it, for chaining off the
@@ -168,7 +281,7 @@ impl ProcessorAsync {
 
 /// Backs {@link ProcessorAsync#withConfig}.
 pub struct ProcessorWithConfigTask {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<Held<aic_sdk::Processor<'static>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -177,10 +290,21 @@ impl Task for ProcessorWithConfigTask {
   type JsValue = ProcessorAsync;
 
   fn compute(&mut self) -> Result<()> {
-    map_err(lock(&self.inner).initialize(&self.config))
+    self.inner.with("ProcessorAsync", |inner| {
+      map_err(inner.initialize(&self.config))
+    })
   }
 
-  fn resolve(&mut self, _env: Env, _: ()) -> Result<ProcessorAsync> {
+  fn resolve(&mut self, env: Env, _: ()) -> Result<ProcessorAsync> {
+    // A second JS instance wrapping the same processor: it reports the same footprint at
+    // finalize, so it must claim it here to keep the external-memory ledger balanced.
+    // Born disposed when the processor was disposed mid-flight, in which case there is
+    // nothing to claim.
+    if self.inner.is_live() {
+      self.inner.claim(mem::PROCESSOR_BYTES);
+      mem::adjust(env, mem::PROCESSOR_BYTES);
+    }
+
     Ok(ProcessorAsync {
       inner: self.inner.clone(),
     })
@@ -189,7 +313,7 @@ impl Task for ProcessorWithConfigTask {
 
 /// Backs {@link ProcessorAsync#initialize}.
 pub struct ProcessorInitializeTask {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<Held<aic_sdk::Processor<'static>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -198,7 +322,9 @@ impl Task for ProcessorInitializeTask {
   type JsValue = ();
 
   fn compute(&mut self) -> Result<()> {
-    map_err(lock(&self.inner).initialize(&self.config))
+    self.inner.with("ProcessorAsync", |inner| {
+      map_err(inner.initialize(&self.config))
+    })
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<()> {
@@ -208,7 +334,7 @@ impl Task for ProcessorInitializeTask {
 
 /// Backs {@link ProcessorAsync#process}.
 pub struct ProcessorProcessTask {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<Held<aic_sdk::Processor<'static>>>,
   audio: Vec<f32>,
 }
 
@@ -220,7 +346,9 @@ impl Task for ProcessorProcessTask {
     // Moved out rather than borrowed so the buffer can be handed to V8 in `resolve`
     // without another copy. The task is used once, so leaving an empty Vec behind is fine.
     let mut audio = std::mem::take(&mut self.audio);
-    map_err(lock(&self.inner).process(&mut audio))?;
+    self
+      .inner
+      .with("ProcessorAsync", |inner| map_err(inner.process(&mut audio)))?;
 
     Ok(audio)
   }
@@ -234,7 +362,7 @@ impl Task for ProcessorProcessTask {
 
 /// Backs {@link ProcessorAsync#getContext}.
 pub struct ProcessorContextTask {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<Held<aic_sdk::Processor<'static>>>,
 }
 
 impl Task for ProcessorContextTask {
@@ -242,7 +370,9 @@ impl Task for ProcessorContextTask {
   type JsValue = ProcessorContext;
 
   fn compute(&mut self) -> Result<aic_sdk::ProcessorContext> {
-    Ok(lock(&self.inner).context())
+    self
+      .inner
+      .with("ProcessorAsync", |inner| Ok(inner.context()))
   }
 
   fn resolve(&mut self, _env: Env, context: aic_sdk::ProcessorContext) -> Result<ProcessorContext> {
@@ -252,7 +382,7 @@ impl Task for ProcessorContextTask {
 
 /// Backs {@link ProcessorAsync#terminateSession}.
 pub struct ProcessorTerminateTask {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<Held<aic_sdk::Processor<'static>>>,
 }
 
 impl Task for ProcessorTerminateTask {
@@ -260,7 +390,9 @@ impl Task for ProcessorTerminateTask {
   type JsValue = ();
 
   fn compute(&mut self) -> Result<()> {
-    map_err(lock(&self.inner).terminate_session())
+    self
+      .inner
+      .with("ProcessorAsync", |inner| map_err(inner.terminate_session()))
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<()> {
