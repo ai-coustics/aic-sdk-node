@@ -32,8 +32,8 @@ impl ObjectFinalize for Model {
 }
 
 impl Model {
-  /// The live SDK model, or the disposed error once `dispose()` ran.
-  pub(crate) fn live(&self) -> Result<&aic_sdk::Model<'static>> {
+  /// The inner SDK model, or the disposed error once `dispose()` ran.
+  pub(crate) fn inner(&self) -> Result<&aic_sdk::Model<'static>> {
     self.inner.as_ref().ok_or_else(|| disposed_error("Model"))
   }
 }
@@ -93,7 +93,7 @@ impl Model {
   /// The model identifier, e.g. `quail-vf-2.2-s-16khz`.
   #[napi]
   pub fn get_id(&self) -> Result<String> {
-    Ok(self.live()?.id().to_owned())
+    Ok(self.inner()?.id().to_owned())
   }
 
   /// The sample rate in Hz the model was trained for.
@@ -102,7 +102,7 @@ impl Model {
   /// its own Nyquist limit, so matching this rate gives the best quality.
   #[napi]
   pub fn get_optimal_sample_rate(&self) -> Result<u32> {
-    Ok(self.live()?.optimal_sample_rate())
+    Ok(self.inner()?.optimal_sample_rate())
   }
 
   /// The block size that avoids internal buffering at `sampleRate`.
@@ -116,7 +116,7 @@ impl Model {
     // A BigInt block size would throw on `new Float32Array(n)` and on arithmetic
     // against plain numbers, so it crosses the boundary as u32. Block sizes are a
     // few thousand samples at most.
-    Ok(self.live()?.optimal_block_size(sample_rate) as u32)
+    Ok(self.inner()?.optimal_block_size(sample_rate) as u32)
   }
 }
 

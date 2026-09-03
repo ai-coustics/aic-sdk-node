@@ -11,10 +11,7 @@ use napi::{
   bindgen_prelude::{AsyncTask, Float32Array, ObjectFinalize},
 };
 use napi_derive::napi;
-use std::sync::{
-  Arc, Mutex, MutexGuard,
-  atomic::{AtomicI64, Ordering},
-};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// The SDK object shared between a binding class and the tasks it spawns.
 ///
@@ -32,58 +29,34 @@ pub(crate) fn lock<T>(shared: &Mutex<T>) -> MutexGuard<'_, T> {
     .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// An SDK object whose native lifetime several JS handles share, plus the external-memory
-/// claims those handles have made against it.
+/// An SDK object whose native lifetime several JS handles and in-flight tasks share.
 ///
-/// `ProcessorAsync` and `VadAsync` can hand out second JS handles onto the same native
-/// object (`withConfig`), and each handle reports the object's footprint at construction
-/// and gives it back at finalization. The claims therefore live on the shared object, and
-/// are drained exactly once: by `dispose()`, or by the last handle's finalizer, whichever
-/// comes first. The ledger always balances.
+/// `ProcessorAsync` and `VadAsync` can hand out a second JS handle onto the same native
+/// object (`withConfig`), and tasks on the libuv pool hold `Arc` clones. The footprint is
+/// therefore reported to V8 once per object, at construction, and given back exactly
+/// once: by `dispose()`, or by the finalizer of the last surviving handle, whichever
+/// comes first. `Option::take` makes the give-back idempotent, so the two never
+/// double-count.
 pub(crate) struct Held<T> {
   inner: Mutex<Option<T>>,
-  outstanding: AtomicI64,
 }
 
 impl<T> Held<T> {
   pub(crate) fn new(inner: T) -> Self {
     Self {
       inner: Mutex::new(Some(inner)),
-      outstanding: AtomicI64::new(0),
     }
   }
 
-  /// Records `bytes` of external memory claimed by a JS handle onto this object.
-  pub(crate) fn claim(&self, bytes: i64) {
-    self.outstanding.fetch_add(bytes, Ordering::SeqCst);
-  }
-
-  /// Gives back this handle's claim, if the claims are still outstanding. A no-op once
-  /// `release()` drained the ledger.
-  pub(crate) fn unclaim(&self, env: Env, bytes: i64) {
-    let previous = self.outstanding.fetch_sub(bytes, Ordering::SeqCst);
-    if previous >= bytes {
-      mem::adjust(env, -bytes);
-    } else {
-      // Claims were already drained; undo the underflow so the ledger stays at zero.
-      self.outstanding.fetch_add(bytes, Ordering::SeqCst);
-    }
-  }
-
-  /// Destroys the native object, if it is still live, giving back every outstanding
-  /// claim exactly once. Idempotent.
+  /// Destroys the native object, if it is still live, and gives its footprint back to
+  /// V8. Idempotent.
   ///
   /// Called by `dispose()`, which destroys the object regardless of other handles, and
   /// by the finalizer of the last surviving handle.
-  pub(crate) fn release(&self, env: Env) {
+  pub(crate) fn release(&self, env: Env, bytes: i64) {
     if lock(&self.inner).take().is_some() {
-      mem::adjust(env, -self.outstanding.swap(0, Ordering::SeqCst));
+      mem::adjust(env, -bytes);
     }
-  }
-
-  /// Whether the native object is still live.
-  pub(crate) fn is_live(&self) -> bool {
-    lock(&self.inner).is_some()
   }
 
   /// Runs `f` with the native object, or fails with the disposed error.
@@ -96,11 +69,11 @@ impl<T> Held<T> {
 
 impl<T> Drop for Held<T> {
   fn drop(&mut self) {
-    // Frees the native object when the last `Arc` handle goes away without any
-    // finalizer having released it, e.g. the last JS handle was collected while a task
-    // still held a clone. Freeing matters more than exact bookkeeping here: the
-    // outstanding claim, if any, stays reported, which only makes V8 a little more
-    // eager for the rest of the process.
+    // Frees the native object when the last `Arc` goes away without `release` having
+    // run, e.g. the last JS handle was finalized while a task still held a clone (that
+    // finalizer saw the extra reference and left the object for the task). The footprint
+    // report cannot be returned here — that takes the finalizer's `Env` — so those bytes
+    // stay reported, which only makes V8 a little more eager for the rest of the process.
     match self.inner.get_mut() {
       Ok(slot) => slot.take(),
       // Dropping cannot fail on a poisoned lock: the guard's contents are still ours.
@@ -135,13 +108,11 @@ pub struct ProcessorAsync {
 
 impl ObjectFinalize for ProcessorAsync {
   fn finalize(self, env: Env) -> Result<()> {
+    // Only the last handle onto the native object destroys it; with other handles or
+    // in-flight tasks holding an `Arc`, this leaves the object (and its footprint
+    // report) for them. Idempotent against `dispose()`.
     if Arc::strong_count(&self.inner) == 1 {
-      // Last handle onto the native object: destroy it and drain every claim.
-      self.inner.release(env);
-    } else {
-      // Other handles (or in-flight tasks) keep the object alive; only this handle's
-      // claim goes back.
-      self.inner.unclaim(env, mem::PROCESSOR_BYTES);
+      self.inner.release(env, mem::PROCESSOR_BYTES);
     }
     Ok(())
   }
@@ -163,7 +134,7 @@ impl ProcessorAsync {
     license_key: String,
     otel_config: Option<OtelConfig>,
   ) -> Result<Self> {
-    let model_inner = model.live()?;
+    let model_inner = model.inner()?;
     claim_sdk_id();
     let inner = match otel_config {
       Some(config) => {
@@ -172,7 +143,6 @@ impl ProcessorAsync {
       None => aic_sdk::Processor::new(model_inner, &license_key),
     };
     let inner = Arc::new(Held::new(map_err(inner)?));
-    inner.claim(mem::PROCESSOR_BYTES);
     mem::adjust(env, mem::PROCESSOR_BYTES);
 
     Ok(Self { inner })
@@ -185,7 +155,7 @@ impl ProcessorAsync {
   /// in-flight work on the libuv pool finishes.
   #[napi]
   pub fn dispose(&self, env: Env) {
-    self.inner.release(env);
+    self.inner.release(env, mem::PROCESSOR_BYTES);
   }
 
   /// Initializes the processor and resolves to a handle onto it, for chaining off the
@@ -295,16 +265,10 @@ impl Task for ProcessorWithConfigTask {
     })
   }
 
-  fn resolve(&mut self, env: Env, _: ()) -> Result<ProcessorAsync> {
-    // A second JS instance wrapping the same processor: it reports the same footprint at
-    // finalize, so it must claim it here to keep the external-memory ledger balanced.
-    // Born disposed when the processor was disposed mid-flight, in which case there is
-    // nothing to claim.
-    if self.inner.is_live() {
-      self.inner.claim(mem::PROCESSOR_BYTES);
-      mem::adjust(env, mem::PROCESSOR_BYTES);
-    }
-
+  fn resolve(&mut self, _env: Env, _: ()) -> Result<ProcessorAsync> {
+    // A second JS handle onto the same native processor. The footprint is reported once
+    // per object at construction, so there is nothing to report here; the last handle's
+    // finalizer gives it back. Born disposed when the processor was disposed mid-flight.
     Ok(ProcessorAsync {
       inner: self.inner.clone(),
     })

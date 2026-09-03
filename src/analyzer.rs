@@ -100,7 +100,7 @@ impl Analyzer {
   /// Creates an analyzer from an analysis model. Other model types are rejected.
   #[napi(constructor)]
   pub fn new(env: Env, model: &Model, license_key: String) -> Result<Self> {
-    let model_inner = model.live()?;
+    let model_inner = model.inner()?;
     claim_sdk_id();
     let (collector, analyzer) = map_err(aic_sdk::analyzer_pair(model_inner, &license_key))?;
     mem::adjust(env, mem::ANALYZER_BYTES);

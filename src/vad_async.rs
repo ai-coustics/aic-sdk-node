@@ -44,13 +44,11 @@ pub struct VadAsync {
 
 impl ObjectFinalize for VadAsync {
   fn finalize(self, env: Env) -> Result<()> {
+    // Only the last handle onto the native object destroys it; with other handles or
+    // in-flight tasks holding an `Arc`, this leaves the object (and its footprint
+    // report) for them. Idempotent against `dispose()`.
     if Arc::strong_count(&self.inner) == 1 {
-      // Last handle onto the native object: destroy it and drain every claim.
-      self.inner.release(env);
-    } else {
-      // Other handles (or in-flight tasks) keep the object alive; only this handle's
-      // claim goes back.
-      self.inner.unclaim(env, mem::PROCESSOR_BYTES);
+      self.inner.release(env, mem::PROCESSOR_BYTES);
     }
     Ok(())
   }
@@ -72,14 +70,13 @@ impl VadAsync {
     license_key: String,
     otel_config: Option<OtelConfig>,
   ) -> Result<Self> {
-    let model_inner = model.live()?;
+    let model_inner = model.inner()?;
     claim_sdk_id();
     let inner = match otel_config {
       Some(config) => aic_sdk::Vad::with_otel_config(model_inner, &license_key, &config.into()),
       None => aic_sdk::Vad::new(model_inner, &license_key),
     };
     let inner = Arc::new(Held::new(map_err(inner)?));
-    inner.claim(mem::PROCESSOR_BYTES);
     mem::adjust(env, mem::PROCESSOR_BYTES);
 
     Ok(Self { inner })
@@ -92,7 +89,7 @@ impl VadAsync {
   /// in-flight work on the libuv pool finishes.
   #[napi]
   pub fn dispose(&self, env: Env) {
-    self.inner.release(env);
+    self.inner.release(env, mem::PROCESSOR_BYTES);
   }
 
   /// Initializes the VAD and resolves to a handle onto it, for chaining off the
@@ -200,16 +197,10 @@ impl Task for VadWithConfigTask {
       .with("VadAsync", |inner| map_err(inner.initialize(&self.config)))
   }
 
-  fn resolve(&mut self, env: Env, _: ()) -> Result<VadAsync> {
-    // A second JS instance wrapping the same VAD: it reports the same footprint at
-    // finalize, so it must claim it here to keep the external-memory ledger balanced.
-    // Born disposed when the VAD was disposed mid-flight, in which case there is
-    // nothing to claim.
-    if self.inner.is_live() {
-      self.inner.claim(mem::PROCESSOR_BYTES);
-      mem::adjust(env, mem::PROCESSOR_BYTES);
-    }
-
+  fn resolve(&mut self, _env: Env, _: ()) -> Result<VadAsync> {
+    // A second JS handle onto the same native VAD. The footprint is reported once per
+    // object at construction, so there is nothing to report here; the last handle's
+    // finalizer gives it back. Born disposed when the VAD was disposed mid-flight.
     Ok(VadAsync {
       inner: self.inner.clone(),
     })

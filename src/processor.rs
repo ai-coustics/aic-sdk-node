@@ -95,8 +95,8 @@ impl ObjectFinalize for Processor {
 }
 
 impl Processor {
-  /// The live SDK processor, or the disposed error once `dispose()` ran.
-  fn live(&self) -> Result<&aic_sdk::Processor<'static>> {
+  /// The inner SDK processor, or the disposed error once `dispose()` ran.
+  fn inner(&self) -> Result<&aic_sdk::Processor<'static>> {
     self
       .inner
       .as_ref()
@@ -104,7 +104,7 @@ impl Processor {
   }
 
   /// The same, for a `&mut` call.
-  fn live_mut(&mut self) -> Result<&mut aic_sdk::Processor<'static>> {
+  fn inner_mut(&mut self) -> Result<&mut aic_sdk::Processor<'static>> {
     self
       .inner
       .as_mut()
@@ -125,7 +125,7 @@ impl Processor {
     license_key: String,
     otel_config: Option<OtelConfig>,
   ) -> Result<Self> {
-    let model_inner = model.live()?;
+    let model_inner = model.inner()?;
     claim_sdk_id();
     let inner = match otel_config {
       Some(config) => {
@@ -164,7 +164,7 @@ impl Processor {
     block_size: u32,
     variable_block_size: Option<bool>,
   ) -> Result<()> {
-    map_err(self.live_mut()?.initialize(&audio_config(
+    map_err(self.inner_mut()?.initialize(&audio_config(
       sample_rate,
       block_size,
       variable_block_size,
@@ -187,7 +187,7 @@ impl Processor {
     // break that assumption, which is inherent to processing JS-owned buffers in place.
     let samples = unsafe { audio.as_mut() };
 
-    map_err(self.live_mut()?.process(samples))
+    map_err(self.inner_mut()?.process(samples))
   }
 
   /// Creates a handle for reading and writing this processor's parameters and state.
@@ -196,7 +196,7 @@ impl Processor {
   #[napi]
   pub fn get_context(&self) -> Result<ProcessorContext> {
     Ok(ProcessorContext {
-      inner: self.live()?.context(),
+      inner: self.inner()?.context(),
     })
   }
 
@@ -206,7 +206,7 @@ impl Processor {
   /// is collected, but GC timing is not guaranteed. May block, so keep it off the audio path.
   #[napi]
   pub fn terminate_session(&mut self) -> Result<()> {
-    map_err(self.live_mut()?.terminate_session())
+    map_err(self.inner_mut()?.terminate_session())
   }
 }
 
