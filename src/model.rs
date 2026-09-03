@@ -15,7 +15,7 @@ use napi_derive::napi;
 pub struct Model {
   // `from_file` memory-maps the file rather than borrowing a caller-owned buffer, so
   // the SDK model is `'static` and needs no lifetime plumbing here.
-  pub(crate) inner: Option<aic_sdk::Model<'static>>,
+  inner: Option<aic_sdk::Model<'static>>,
   /// Native footprint reported to V8's GC while this instance is alive (the mmap'd
   /// weights). Reported back on dispose or finalize so the accounting balances.
   reported_bytes: i64,
@@ -32,8 +32,8 @@ impl ObjectFinalize for Model {
 }
 
 impl Model {
-  /// The SDK model, or the disposed error once `dispose()` ran.
-  pub(crate) fn sdk(&self) -> std::result::Result<&aic_sdk::Model<'static>, napi::Error> {
+  /// The live SDK model, or the disposed error once `dispose()` ran.
+  pub(crate) fn live(&self) -> Result<&aic_sdk::Model<'static>> {
     self.inner.as_ref().ok_or_else(|| disposed_error("Model"))
   }
 }
@@ -93,8 +93,7 @@ impl Model {
   /// The model identifier, e.g. `quail-vf-2.2-s-16khz`.
   #[napi]
   pub fn get_id(&self) -> Result<String> {
-    let inner = self.inner.as_ref().ok_or_else(|| disposed_error("Model"))?;
-    Ok(inner.id().to_owned())
+    Ok(self.live()?.id().to_owned())
   }
 
   /// The sample rate in Hz the model was trained for.
@@ -103,8 +102,7 @@ impl Model {
   /// its own Nyquist limit, so matching this rate gives the best quality.
   #[napi]
   pub fn get_optimal_sample_rate(&self) -> Result<u32> {
-    let inner = self.inner.as_ref().ok_or_else(|| disposed_error("Model"))?;
-    Ok(inner.optimal_sample_rate())
+    Ok(self.live()?.optimal_sample_rate())
   }
 
   /// The block size that avoids internal buffering at `sampleRate`.
@@ -114,12 +112,11 @@ impl Model {
   /// window: a 10 ms window is 480 samples at 48 kHz but 160 at 16 kHz.
   #[napi]
   pub fn get_optimal_block_size(&self, sample_rate: u32) -> Result<u32> {
-    let inner = self.inner.as_ref().ok_or_else(|| disposed_error("Model"))?;
     // The SDK reports sizes as `usize`, which napi would marshal as a JS BigInt.
     // A BigInt block size would throw on `new Float32Array(n)` and on arithmetic
     // against plain numbers, so it crosses the boundary as u32. Block sizes are a
     // few thousand samples at most.
-    Ok(inner.optimal_block_size(sample_rate) as u32)
+    Ok(self.live()?.optimal_block_size(sample_rate) as u32)
   }
 }
 

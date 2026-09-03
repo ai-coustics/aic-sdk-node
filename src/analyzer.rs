@@ -83,6 +83,11 @@ pub struct Analyzer {
 impl ObjectFinalize for Analyzer {
   fn finalize(self, env: Env) -> Result<()> {
     // `dispose()` already gave the footprint back when the collector is gone.
+    //
+    // An in-flight `AnalyzeTask` holds the analyzer `Arc`, so that half is dropped
+    // only after the worker finishes. The collector drops here, possibly while the
+    // worker analyzes. That is safe per the C API, which destroys the paired halves
+    // independently, in any order (`aic_collector_destroy`).
     if self.collector.is_some() {
       mem::adjust(env, -mem::ANALYZER_BYTES);
     }
@@ -95,7 +100,7 @@ impl Analyzer {
   /// Creates an analyzer from an analysis model. Other model types are rejected.
   #[napi(constructor)]
   pub fn new(env: Env, model: &Model, license_key: String) -> Result<Self> {
-    let model_inner = model.sdk()?;
+    let model_inner = model.live()?;
     claim_sdk_id();
     let (collector, analyzer) = map_err(aic_sdk::analyzer_pair(model_inner, &license_key))?;
     mem::adjust(env, mem::ANALYZER_BYTES);
@@ -114,6 +119,12 @@ impl Analyzer {
   #[napi]
   pub fn dispose(&mut self, env: Env) {
     if self.collector.take().is_some() {
+      // The collector drops before the analyzer lock is taken, so it can be destroyed
+      // while an `analyzeAsync` is in flight on a worker. That is safe per the C API
+      // (`aic_collector_destroy`): the paired halves are destroyed independently, in
+      // any order, and the collector handle itself is only ever used on this thread.
+      // The analyzer half is destroyed under the lock, which is what blocks until the
+      // in-flight analysis finishes.
       lock(&self.analyzer).take(); // dropped on scope exit
       mem::adjust(env, -mem::ANALYZER_BYTES);
     }

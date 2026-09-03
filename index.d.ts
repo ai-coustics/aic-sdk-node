@@ -226,8 +226,8 @@ export declare class ProcessorAsync {
    * Destroys the native processor immediately, releasing its memory and telemetry
    * session without waiting for garbage collection.
    *
-   * Every later method throws; calling `dispose()` again does nothing. The synchronous
-   * variant blocks until in-flight work on the libuv pool finishes.
+   * Every later method throws; calling `dispose()` again does nothing. Blocks until
+   * in-flight work on the libuv pool finishes.
    */
   dispose(): void
   /**
@@ -285,8 +285,11 @@ export declare class ProcessorAsync {
 /**
  * Control handle for a {@link Processor}.
  *
- * Every method may be called while audio is being processed. Releasing the handle does
- * not destroy the processor it came from.
+ * Every method may be called while audio is being processed. The handle and the processor
+ * have independent lifetimes in both directions: releasing the handle does not destroy
+ * the processor it came from, and the handle stays valid after its processor is disposed
+ * or garbage-collected. Calls on it keep succeeding; they just no longer reach a live
+ * processor.
  */
 export declare class ProcessorContext {
   /** Sets an enhancement parameter. Throws if the value is out of range. */
@@ -402,8 +405,8 @@ export declare class VadAsync {
    * Destroys the native VAD immediately, releasing its memory and telemetry session
    * without waiting for garbage collection.
    *
-   * Every later method throws; calling `dispose()` again does nothing. The synchronous
-   * variant blocks until in-flight work on the libuv pool finishes.
+   * Every later method throws; calling `dispose()` again does nothing. Blocks until
+   * in-flight work on the libuv pool finishes.
    */
   dispose(): void
   /**

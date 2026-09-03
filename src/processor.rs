@@ -94,6 +94,24 @@ impl ObjectFinalize for Processor {
   }
 }
 
+impl Processor {
+  /// The live SDK processor, or the disposed error once `dispose()` ran.
+  fn live(&self) -> Result<&aic_sdk::Processor<'static>> {
+    self
+      .inner
+      .as_ref()
+      .ok_or_else(|| disposed_error("Processor"))
+  }
+
+  /// The same, for a `&mut` call.
+  fn live_mut(&mut self) -> Result<&mut aic_sdk::Processor<'static>> {
+    self
+      .inner
+      .as_mut()
+      .ok_or_else(|| disposed_error("Processor"))
+  }
+}
+
 #[napi]
 impl Processor {
   /// Creates a processor from an enhancement or bypass model.
@@ -107,7 +125,7 @@ impl Processor {
     license_key: String,
     otel_config: Option<OtelConfig>,
   ) -> Result<Self> {
-    let model_inner = model.sdk()?;
+    let model_inner = model.live()?;
     claim_sdk_id();
     let inner = match otel_config {
       Some(config) => {
@@ -146,11 +164,11 @@ impl Processor {
     block_size: u32,
     variable_block_size: Option<bool>,
   ) -> Result<()> {
-    let inner = self
-      .inner
-      .as_mut()
-      .ok_or_else(|| disposed_error("Processor"))?;
-    map_err(inner.initialize(&audio_config(sample_rate, block_size, variable_block_size)))
+    map_err(self.live_mut()?.initialize(&audio_config(
+      sample_rate,
+      block_size,
+      variable_block_size,
+    )))
   }
 
   /// Enhances a mono audio block in place.
@@ -168,12 +186,8 @@ impl Processor {
     // its own isolate. A SharedArrayBuffer written by another worker mid-call would
     // break that assumption, which is inherent to processing JS-owned buffers in place.
     let samples = unsafe { audio.as_mut() };
-    let inner = self
-      .inner
-      .as_mut()
-      .ok_or_else(|| disposed_error("Processor"))?;
 
-    map_err(inner.process(samples))
+    map_err(self.live_mut()?.process(samples))
   }
 
   /// Creates a handle for reading and writing this processor's parameters and state.
@@ -181,13 +195,8 @@ impl Processor {
   /// Each call returns an independent handle onto the same processor.
   #[napi]
   pub fn get_context(&self) -> Result<ProcessorContext> {
-    let inner = self
-      .inner
-      .as_ref()
-      .ok_or_else(|| disposed_error("Processor"))?;
-
     Ok(ProcessorContext {
-      inner: inner.context(),
+      inner: self.live()?.context(),
     })
   }
 
@@ -197,18 +206,17 @@ impl Processor {
   /// is collected, but GC timing is not guaranteed. May block, so keep it off the audio path.
   #[napi]
   pub fn terminate_session(&mut self) -> Result<()> {
-    let inner = self
-      .inner
-      .as_mut()
-      .ok_or_else(|| disposed_error("Processor"))?;
-    map_err(inner.terminate_session())
+    map_err(self.live_mut()?.terminate_session())
   }
 }
 
 /// Control handle for a {@link Processor}.
 ///
-/// Every method may be called while audio is being processed. Releasing the handle does
-/// not destroy the processor it came from.
+/// Every method may be called while audio is being processed. The handle and the processor
+/// have independent lifetimes in both directions: releasing the handle does not destroy
+/// the processor it came from, and the handle stays valid after its processor is disposed
+/// or garbage-collected. Calls on it keep succeeding; they just no longer reach a live
+/// processor.
 #[napi]
 pub struct ProcessorContext {
   pub(crate) inner: aic_sdk::ProcessorContext,

@@ -72,7 +72,7 @@ impl VadAsync {
     license_key: String,
     otel_config: Option<OtelConfig>,
   ) -> Result<Self> {
-    let model_inner = model.sdk()?;
+    let model_inner = model.live()?;
     claim_sdk_id();
     let inner = match otel_config {
       Some(config) => aic_sdk::Vad::with_otel_config(model_inner, &license_key, &config.into()),
@@ -88,8 +88,8 @@ impl VadAsync {
   /// Destroys the native VAD immediately, releasing its memory and telemetry session
   /// without waiting for garbage collection.
   ///
-  /// Every later method throws; calling `dispose()` again does nothing. The synchronous
-  /// variant blocks until in-flight work on the libuv pool finishes.
+  /// Every later method throws; calling `dispose()` again does nothing. Blocks until
+  /// in-flight work on the libuv pool finishes.
   #[napi]
   pub fn dispose(&self, env: Env) {
     self.inner.release(env);

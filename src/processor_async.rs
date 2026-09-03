@@ -38,8 +38,8 @@ pub(crate) fn lock<T>(shared: &Mutex<T>) -> MutexGuard<'_, T> {
 /// `ProcessorAsync` and `VadAsync` can hand out second JS handles onto the same native
 /// object (`withConfig`), and each handle reports the object's footprint at construction
 /// and gives it back at finalization. The claims therefore live on the shared object, and
-/// are drained exactly once — by whichever comes first, `dispose()` or the first
-/// finalizer — so the ledger always balances.
+/// are drained exactly once: by `dispose()`, or by the last handle's finalizer, whichever
+/// comes first. The ledger always balances.
 pub(crate) struct Held<T> {
   inner: Mutex<Option<T>>,
   outstanding: AtomicI64,
@@ -97,7 +97,7 @@ impl<T> Held<T> {
 impl<T> Drop for Held<T> {
   fn drop(&mut self) {
     // Frees the native object when the last `Arc` handle goes away without any
-    // finalizer having released it — e.g. the last JS handle was collected while a task
+    // finalizer having released it, e.g. the last JS handle was collected while a task
     // still held a clone. Freeing matters more than exact bookkeeping here: the
     // outstanding claim, if any, stays reported, which only makes V8 a little more
     // eager for the rest of the process.
@@ -163,7 +163,7 @@ impl ProcessorAsync {
     license_key: String,
     otel_config: Option<OtelConfig>,
   ) -> Result<Self> {
-    let model_inner = model.sdk()?;
+    let model_inner = model.live()?;
     claim_sdk_id();
     let inner = match otel_config {
       Some(config) => {
@@ -181,8 +181,8 @@ impl ProcessorAsync {
   /// Destroys the native processor immediately, releasing its memory and telemetry
   /// session without waiting for garbage collection.
   ///
-  /// Every later method throws; calling `dispose()` again does nothing. The synchronous
-  /// variant blocks until in-flight work on the libuv pool finishes.
+  /// Every later method throws; calling `dispose()` again does nothing. Blocks until
+  /// in-flight work on the libuv pool finishes.
   #[napi]
   pub fn dispose(&self, env: Env) {
     self.inner.release(env);
