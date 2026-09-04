@@ -1,7 +1,7 @@
 use crate::{
   claim_sdk_id,
-  error::{Result, disposed_error, map_err},
-  mem,
+  error::{Result, map_err},
+  mem::{self, MemoryTracked},
   model::Model,
   processor::{OtelConfig, ProcessorContext, audio_config},
 };
@@ -29,59 +29,6 @@ pub(crate) fn lock<T>(shared: &Mutex<T>) -> MutexGuard<'_, T> {
     .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// An SDK object whose native lifetime several JS handles and in-flight tasks share.
-///
-/// `ProcessorAsync` and `VadAsync` can hand out a second JS handle onto the same native
-/// object (`withConfig`), and tasks on the libuv pool hold `Arc` clones. The footprint is
-/// therefore reported to V8 once per object, at construction, and given back exactly
-/// once: by `dispose()`, or by the finalizer of the last surviving handle, whichever
-/// comes first. `Option::take` makes the give-back idempotent, so the two never
-/// double-count.
-pub(crate) struct Held<T> {
-  inner: Mutex<Option<T>>,
-}
-
-impl<T> Held<T> {
-  pub(crate) fn new(inner: T) -> Self {
-    Self {
-      inner: Mutex::new(Some(inner)),
-    }
-  }
-
-  /// Destroys the native object, if it is still live, and gives its footprint back to
-  /// V8. Idempotent.
-  ///
-  /// Called by `dispose()`, which destroys the object regardless of other handles, and
-  /// by the finalizer of the last surviving handle.
-  pub(crate) fn release(&self, env: Env, bytes: i64) {
-    if lock(&self.inner).take().is_some() {
-      mem::adjust(env, -bytes);
-    }
-  }
-
-  /// Runs `f` with the native object, or fails with the disposed error.
-  pub(crate) fn with<R>(&self, class: &str, f: impl FnOnce(&mut T) -> Result<R>) -> Result<R> {
-    let mut guard = lock(&self.inner);
-    let inner = guard.as_mut().ok_or_else(|| disposed_error(class))?;
-    f(inner)
-  }
-}
-
-impl<T> Drop for Held<T> {
-  fn drop(&mut self) {
-    // Frees the native object when the last `Arc` goes away without `release` having
-    // run, e.g. the last JS handle was finalized while a task still held a clone (that
-    // finalizer saw the extra reference and left the object for the task). The footprint
-    // report cannot be returned here — that takes the finalizer's `Env` — so those bytes
-    // stay reported, which only makes V8 a little more eager for the rest of the process.
-    match self.inner.get_mut() {
-      Ok(slot) => slot.take(),
-      // Dropping cannot fail on a poisoned lock: the guard's contents are still ours.
-      Err(poisoned) => poisoned.into_inner().take(),
-    };
-  }
-}
-
 /// Speech enhancement processor that keeps its work off the main thread.
 ///
 /// The same processing as {@link Processor}, but each call returns a promise and runs on
@@ -103,7 +50,7 @@ impl<T> Drop for Held<T> {
 /// binding deliberately does not use.
 #[napi(custom_finalize)]
 pub struct ProcessorAsync {
-  inner: Arc<Held<aic_sdk::Processor<'static>>>,
+  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
 }
 
 impl ObjectFinalize for ProcessorAsync {
@@ -142,7 +89,7 @@ impl ProcessorAsync {
       }
       None => aic_sdk::Processor::new(model_inner, &license_key),
     };
-    let inner = Arc::new(Held::new(map_err(inner)?));
+    let inner = Arc::new(MemoryTracked::new(map_err(inner)?));
     mem::adjust(env, mem::PROCESSOR_BYTES);
 
     Ok(Self { inner })
@@ -251,7 +198,7 @@ impl ProcessorAsync {
 
 /// Backs {@link ProcessorAsync#withConfig}.
 pub struct ProcessorWithConfigTask {
-  inner: Arc<Held<aic_sdk::Processor<'static>>>,
+  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -277,7 +224,7 @@ impl Task for ProcessorWithConfigTask {
 
 /// Backs {@link ProcessorAsync#initialize}.
 pub struct ProcessorInitializeTask {
-  inner: Arc<Held<aic_sdk::Processor<'static>>>,
+  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -298,7 +245,7 @@ impl Task for ProcessorInitializeTask {
 
 /// Backs {@link ProcessorAsync#process}.
 pub struct ProcessorProcessTask {
-  inner: Arc<Held<aic_sdk::Processor<'static>>>,
+  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
   audio: Vec<f32>,
 }
 
@@ -326,7 +273,7 @@ impl Task for ProcessorProcessTask {
 
 /// Backs {@link ProcessorAsync#getContext}.
 pub struct ProcessorContextTask {
-  inner: Arc<Held<aic_sdk::Processor<'static>>>,
+  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
 }
 
 impl Task for ProcessorContextTask {
@@ -346,7 +293,7 @@ impl Task for ProcessorContextTask {
 
 /// Backs {@link ProcessorAsync#terminateSession}.
 pub struct ProcessorTerminateTask {
-  inner: Arc<Held<aic_sdk::Processor<'static>>>,
+  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
 }
 
 impl Task for ProcessorTerminateTask {
