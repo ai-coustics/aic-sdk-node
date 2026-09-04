@@ -8,6 +8,7 @@
 use napi_derive::napi;
 
 mod analyzer;
+mod disposable_slot;
 mod error;
 mod mem;
 mod model;

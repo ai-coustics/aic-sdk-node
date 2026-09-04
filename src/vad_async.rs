@@ -1,7 +1,8 @@
 use crate::{
   claim_sdk_id,
+  disposable_slot::DisposableSlot,
   error::{Result, map_err},
-  mem::{self, MemoryTracked},
+  mem,
   model::Model,
   processor::{OtelConfig, audio_config},
   vad::VadContext,
@@ -38,7 +39,7 @@ use std::sync::Arc;
 /// binding deliberately does not use.
 #[napi(custom_finalize)]
 pub struct VadAsync {
-  inner: Arc<MemoryTracked<aic_sdk::Vad<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Vad<'static>>>,
 }
 
 impl ObjectFinalize for VadAsync {
@@ -75,7 +76,7 @@ impl VadAsync {
       Some(config) => aic_sdk::Vad::with_otel_config(model_inner, &license_key, &config.into()),
       None => aic_sdk::Vad::new(model_inner, &license_key),
     };
-    let inner = Arc::new(MemoryTracked::new(map_err(inner)?));
+    let inner = Arc::new(DisposableSlot::new(map_err(inner)?));
     mem::adjust(env, mem::PROCESSOR_BYTES);
 
     Ok(Self { inner })
@@ -182,7 +183,7 @@ impl VadAsync {
 
 /// Backs {@link VadAsync#withConfig}.
 pub struct VadWithConfigTask {
-  inner: Arc<MemoryTracked<aic_sdk::Vad<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Vad<'static>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -208,7 +209,7 @@ impl Task for VadWithConfigTask {
 
 /// Backs {@link VadAsync#initialize}.
 pub struct VadInitializeTask {
-  inner: Arc<MemoryTracked<aic_sdk::Vad<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Vad<'static>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -229,7 +230,7 @@ impl Task for VadInitializeTask {
 
 /// Backs {@link VadAsync#process}.
 pub struct VadProcessTask {
-  inner: Arc<MemoryTracked<aic_sdk::Vad<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Vad<'static>>>,
   audio: Vec<f32>,
 }
 
@@ -257,7 +258,7 @@ impl Task for VadProcessTask {
 
 /// Backs {@link VadAsync#getContext}.
 pub struct VadContextTask {
-  inner: Arc<MemoryTracked<aic_sdk::Vad<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Vad<'static>>>,
 }
 
 impl Task for VadContextTask {
@@ -275,7 +276,7 @@ impl Task for VadContextTask {
 
 /// Backs {@link VadAsync#terminateSession}.
 pub struct VadTerminateTask {
-  inner: Arc<MemoryTracked<aic_sdk::Vad<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Vad<'static>>>,
 }
 
 impl Task for VadTerminateTask {

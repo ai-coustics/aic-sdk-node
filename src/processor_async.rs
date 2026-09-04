@@ -1,7 +1,8 @@
 use crate::{
   claim_sdk_id,
+  disposable_slot::DisposableSlot,
   error::{Result, map_err},
-  mem::{self, MemoryTracked},
+  mem,
   model::Model,
   processor::{OtelConfig, ProcessorContext, audio_config},
 };
@@ -50,7 +51,7 @@ pub(crate) fn lock<T>(shared: &Mutex<T>) -> MutexGuard<'_, T> {
 /// binding deliberately does not use.
 #[napi(custom_finalize)]
 pub struct ProcessorAsync {
-  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
 }
 
 impl ObjectFinalize for ProcessorAsync {
@@ -89,7 +90,7 @@ impl ProcessorAsync {
       }
       None => aic_sdk::Processor::new(model_inner, &license_key),
     };
-    let inner = Arc::new(MemoryTracked::new(map_err(inner)?));
+    let inner = Arc::new(DisposableSlot::new(map_err(inner)?));
     mem::adjust(env, mem::PROCESSOR_BYTES);
 
     Ok(Self { inner })
@@ -198,7 +199,7 @@ impl ProcessorAsync {
 
 /// Backs {@link ProcessorAsync#withConfig}.
 pub struct ProcessorWithConfigTask {
-  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -224,7 +225,7 @@ impl Task for ProcessorWithConfigTask {
 
 /// Backs {@link ProcessorAsync#initialize}.
 pub struct ProcessorInitializeTask {
-  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -245,7 +246,7 @@ impl Task for ProcessorInitializeTask {
 
 /// Backs {@link ProcessorAsync#process}.
 pub struct ProcessorProcessTask {
-  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
   audio: Vec<f32>,
 }
 
@@ -273,7 +274,7 @@ impl Task for ProcessorProcessTask {
 
 /// Backs {@link ProcessorAsync#getContext}.
 pub struct ProcessorContextTask {
-  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
 }
 
 impl Task for ProcessorContextTask {
@@ -293,7 +294,7 @@ impl Task for ProcessorContextTask {
 
 /// Backs {@link ProcessorAsync#terminateSession}.
 pub struct ProcessorTerminateTask {
-  inner: Arc<MemoryTracked<aic_sdk::Processor<'static>>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
 }
 
 impl Task for ProcessorTerminateTask {
