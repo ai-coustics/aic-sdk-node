@@ -1,13 +1,15 @@
 use crate::{
   claim_sdk_id,
+  disposable_slot::DisposableSlot,
   error::{Result, map_err},
+  mem,
   model::Model,
   processor::{OtelConfig, ProcessorContext, audio_config},
 };
 
 use napi::{
   Env, Task,
-  bindgen_prelude::{AsyncTask, Float32Array},
+  bindgen_prelude::{AsyncTask, Float32Array, ObjectFinalize},
 };
 use napi_derive::napi;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -47,9 +49,21 @@ pub(crate) fn lock<T>(shared: &Mutex<T>) -> MutexGuard<'_, T> {
 /// Raise `UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel. The
 /// SDK's own `AIC_NUM_THREADS` does not apply here: that variable sizes a rayon pool this
 /// binding deliberately does not use.
-#[napi]
+#[napi(custom_finalize)]
 pub struct ProcessorAsync {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
+}
+
+impl ObjectFinalize for ProcessorAsync {
+  fn finalize(self, env: Env) -> Result<()> {
+    // Only the last handle onto the native object destroys it; with other handles or
+    // in-flight tasks holding an `Arc`, this leaves the object (and its footprint
+    // report) for them. Idempotent against `dispose()`.
+    if Arc::strong_count(&self.inner) == 1 {
+      self.inner.release(env, mem::PROCESSOR_BYTES);
+    }
+    Ok(())
+  }
 }
 
 #[napi]
@@ -62,17 +76,34 @@ impl ProcessorAsync {
   /// Telemetry follows the runtime environment; pass `otelConfig` to override it for this
   /// instance.
   #[napi(constructor)]
-  pub fn new(model: &Model, license_key: String, otel_config: Option<OtelConfig>) -> Result<Self> {
+  pub fn new(
+    env: Env,
+    model: &Model,
+    license_key: String,
+    otel_config: Option<OtelConfig>,
+  ) -> Result<Self> {
+    let model_inner = model.inner()?;
     claim_sdk_id();
     let inner = match otel_config {
       Some(config) => {
-        aic_sdk::Processor::with_otel_config(&model.inner, &license_key, &config.into())
+        aic_sdk::Processor::with_otel_config(model_inner, &license_key, &config.into())
       }
-      None => aic_sdk::Processor::new(&model.inner, &license_key),
+      None => aic_sdk::Processor::new(model_inner, &license_key),
     };
-    Ok(Self {
-      inner: Arc::new(Mutex::new(map_err(inner)?)),
-    })
+    let inner = Arc::new(DisposableSlot::new(map_err(inner)?));
+    mem::adjust(env, mem::PROCESSOR_BYTES);
+
+    Ok(Self { inner })
+  }
+
+  /// Destroys the native processor immediately, releasing its memory and telemetry
+  /// session without waiting for garbage collection.
+  ///
+  /// Every later method throws; calling `dispose()` again does nothing. Blocks until
+  /// in-flight work on the libuv pool finishes.
+  #[napi]
+  pub fn dispose(&self, env: Env) {
+    self.inner.release(env, mem::PROCESSOR_BYTES);
   }
 
   /// Initializes the processor and resolves to a handle onto it, for chaining off the
@@ -168,7 +199,7 @@ impl ProcessorAsync {
 
 /// Backs {@link ProcessorAsync#withConfig}.
 pub struct ProcessorWithConfigTask {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -177,10 +208,15 @@ impl Task for ProcessorWithConfigTask {
   type JsValue = ProcessorAsync;
 
   fn compute(&mut self) -> Result<()> {
-    map_err(lock(&self.inner).initialize(&self.config))
+    self.inner.with("ProcessorAsync", |inner| {
+      map_err(inner.initialize(&self.config))
+    })
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<ProcessorAsync> {
+    // A second JS handle onto the same native processor. The footprint is reported once
+    // per object at construction, so there is nothing to report here; the last handle's
+    // finalizer gives it back. Born disposed when the processor was disposed mid-flight.
     Ok(ProcessorAsync {
       inner: self.inner.clone(),
     })
@@ -189,7 +225,7 @@ impl Task for ProcessorWithConfigTask {
 
 /// Backs {@link ProcessorAsync#initialize}.
 pub struct ProcessorInitializeTask {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -198,7 +234,9 @@ impl Task for ProcessorInitializeTask {
   type JsValue = ();
 
   fn compute(&mut self) -> Result<()> {
-    map_err(lock(&self.inner).initialize(&self.config))
+    self.inner.with("ProcessorAsync", |inner| {
+      map_err(inner.initialize(&self.config))
+    })
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<()> {
@@ -208,7 +246,7 @@ impl Task for ProcessorInitializeTask {
 
 /// Backs {@link ProcessorAsync#process}.
 pub struct ProcessorProcessTask {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
   audio: Vec<f32>,
 }
 
@@ -220,7 +258,9 @@ impl Task for ProcessorProcessTask {
     // Moved out rather than borrowed so the buffer can be handed to V8 in `resolve`
     // without another copy. The task is used once, so leaving an empty Vec behind is fine.
     let mut audio = std::mem::take(&mut self.audio);
-    map_err(lock(&self.inner).process(&mut audio))?;
+    self
+      .inner
+      .with("ProcessorAsync", |inner| map_err(inner.process(&mut audio)))?;
 
     Ok(audio)
   }
@@ -234,7 +274,7 @@ impl Task for ProcessorProcessTask {
 
 /// Backs {@link ProcessorAsync#getContext}.
 pub struct ProcessorContextTask {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
 }
 
 impl Task for ProcessorContextTask {
@@ -242,7 +282,9 @@ impl Task for ProcessorContextTask {
   type JsValue = ProcessorContext;
 
   fn compute(&mut self) -> Result<aic_sdk::ProcessorContext> {
-    Ok(lock(&self.inner).context())
+    self
+      .inner
+      .with("ProcessorAsync", |inner| Ok(inner.context()))
   }
 
   fn resolve(&mut self, _env: Env, context: aic_sdk::ProcessorContext) -> Result<ProcessorContext> {
@@ -252,7 +294,7 @@ impl Task for ProcessorContextTask {
 
 /// Backs {@link ProcessorAsync#terminateSession}.
 pub struct ProcessorTerminateTask {
-  inner: Shared<aic_sdk::Processor<'static>>,
+  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
 }
 
 impl Task for ProcessorTerminateTask {
@@ -260,7 +302,9 @@ impl Task for ProcessorTerminateTask {
   type JsValue = ();
 
   fn compute(&mut self) -> Result<()> {
-    map_err(lock(&self.inner).terminate_session())
+    self
+      .inner
+      .with("ProcessorAsync", |inner| map_err(inner.terminate_session()))
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<()> {

@@ -1,11 +1,12 @@
 use crate::{
   claim_sdk_id,
-  error::{Result, map_err},
+  error::{Result, disposed_error, map_err},
+  mem,
   model::Model,
   processor::{OtelConfig, audio_config},
 };
 
-use napi::bindgen_prelude::Float32Array;
+use napi::{Env, bindgen_prelude::Float32Array, bindgen_prelude::ObjectFinalize};
 use napi_derive::napi;
 
 /// Voice activity detection parameters, all changeable while audio is being processed.
@@ -53,9 +54,31 @@ impl From<VadParameter> for aic_sdk::VadParameter {
 /// processor's output: enhancement changes the signal the VAD model expects, and stacks
 /// the processor's delay onto the prediction. Since `process` leaves its input untouched,
 /// calling it on the same block before `Processor#process` is enough.
-#[napi]
+#[napi(custom_finalize)]
 pub struct Vad {
-  inner: aic_sdk::Vad<'static>,
+  inner: Option<aic_sdk::Vad<'static>>,
+}
+
+impl ObjectFinalize for Vad {
+  fn finalize(self, env: Env) -> Result<()> {
+    // `dispose()` already gave the footprint back when the inner is gone.
+    if self.inner.is_some() {
+      mem::adjust(env, -mem::PROCESSOR_BYTES);
+    }
+    Ok(())
+  }
+}
+
+impl Vad {
+  /// The inner SDK VAD, or the disposed error once `dispose()` ran.
+  fn inner(&self) -> Result<&aic_sdk::Vad<'static>> {
+    self.inner.as_ref().ok_or_else(|| disposed_error("Vad"))
+  }
+
+  /// The same, for a `&mut` call.
+  fn inner_mut(&mut self) -> Result<&mut aic_sdk::Vad<'static>> {
+    self.inner.as_mut().ok_or_else(|| disposed_error("Vad"))
+  }
 }
 
 #[napi]
@@ -65,15 +88,33 @@ impl Vad {
   /// Telemetry follows the runtime environment; pass `otelConfig` to override it for this
   /// instance.
   #[napi(constructor)]
-  pub fn new(model: &Model, license_key: String, otel_config: Option<OtelConfig>) -> Result<Self> {
+  pub fn new(
+    env: Env,
+    model: &Model,
+    license_key: String,
+    otel_config: Option<OtelConfig>,
+  ) -> Result<Self> {
+    let model_inner = model.inner()?;
     claim_sdk_id();
     let inner = match otel_config {
-      Some(config) => aic_sdk::Vad::with_otel_config(&model.inner, &license_key, &config.into()),
-      None => aic_sdk::Vad::new(&model.inner, &license_key),
+      Some(config) => aic_sdk::Vad::with_otel_config(model_inner, &license_key, &config.into()),
+      None => aic_sdk::Vad::new(model_inner, &license_key),
     };
-    Ok(Self {
-      inner: map_err(inner)?,
-    })
+    let inner = map_err(inner)?;
+    mem::adjust(env, mem::PROCESSOR_BYTES);
+
+    Ok(Self { inner: Some(inner) })
+  }
+
+  /// Destroys the native VAD immediately, releasing its memory and telemetry session
+  /// without waiting for garbage collection.
+  ///
+  /// Every later method throws; calling `dispose()` again does nothing.
+  #[napi]
+  pub fn dispose(&mut self, env: Env) {
+    if self.inner.take().is_some() {
+      mem::adjust(env, -mem::PROCESSOR_BYTES);
+    }
   }
 
   /// Configures the VAD for an audio format. Must be called before processing.
@@ -87,11 +128,11 @@ impl Vad {
     block_size: u32,
     variable_block_size: Option<bool>,
   ) -> Result<()> {
-    map_err(
-      self
-        .inner
-        .initialize(&audio_config(sample_rate, block_size, variable_block_size)),
-    )
+    map_err(self.inner_mut()?.initialize(&audio_config(
+      sample_rate,
+      block_size,
+      variable_block_size,
+    )))
   }
 
   /// Examines a mono audio block and updates the prediction, leaving the audio unmodified.
@@ -99,23 +140,23 @@ impl Vad {
   pub fn process(&mut self, audio: Float32Array) -> Result<()> {
     // Read-only, so the safe `Deref` to `&[f32]` is enough here. Taking the view by
     // value does not copy the caller's samples.
-    map_err(self.inner.process(&audio))
+    map_err(self.inner_mut()?.process(&audio))
   }
 
   /// Creates a handle for reading predictions and controlling this VAD.
   ///
   /// Each call returns an independent handle onto the same VAD.
   #[napi]
-  pub fn get_context(&self) -> VadContext {
-    VadContext {
-      inner: self.inner.context(),
-    }
+  pub fn get_context(&self) -> Result<VadContext> {
+    Ok(VadContext {
+      inner: self.inner()?.context(),
+    })
   }
 
   /// Ends this VAD's telemetry session, after which it can no longer process audio.
   #[napi]
   pub fn terminate_session(&mut self) -> Result<()> {
-    map_err(self.inner.terminate_session())
+    map_err(self.inner_mut()?.terminate_session())
   }
 }
 

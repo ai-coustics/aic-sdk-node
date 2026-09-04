@@ -1,10 +1,11 @@
 use crate::{
   claim_sdk_id,
-  error::{Result, map_err},
+  error::{Result, disposed_error, map_err},
+  mem,
   model::Model,
 };
 
-use napi::bindgen_prelude::Float32Array;
+use napi::{Env, bindgen_prelude::Float32Array, bindgen_prelude::ObjectFinalize};
 use napi_derive::napi;
 
 /// Enhancement parameters, all changeable while audio is being processed.
@@ -78,9 +79,37 @@ pub(crate) fn audio_config(
 /// and {@link Analyzer} for analysis models; passing the wrong kind throws.
 ///
 /// Create several processors to handle multiple streams or to switch models at runtime.
-#[napi]
+#[napi(custom_finalize)]
 pub struct Processor {
-  inner: aic_sdk::Processor<'static>,
+  inner: Option<aic_sdk::Processor<'static>>,
+}
+
+impl ObjectFinalize for Processor {
+  fn finalize(self, env: Env) -> Result<()> {
+    // `dispose()` already gave the footprint back when the inner is gone.
+    if self.inner.is_some() {
+      mem::adjust(env, -mem::PROCESSOR_BYTES);
+    }
+    Ok(())
+  }
+}
+
+impl Processor {
+  /// The inner SDK processor, or the disposed error once `dispose()` ran.
+  fn inner(&self) -> Result<&aic_sdk::Processor<'static>> {
+    self
+      .inner
+      .as_ref()
+      .ok_or_else(|| disposed_error("Processor"))
+  }
+
+  /// The same, for a `&mut` call.
+  fn inner_mut(&mut self) -> Result<&mut aic_sdk::Processor<'static>> {
+    self
+      .inner
+      .as_mut()
+      .ok_or_else(|| disposed_error("Processor"))
+  }
 }
 
 #[napi]
@@ -90,17 +119,35 @@ impl Processor {
   /// Telemetry follows the runtime environment; pass `otelConfig` to override it for this
   /// instance.
   #[napi(constructor)]
-  pub fn new(model: &Model, license_key: String, otel_config: Option<OtelConfig>) -> Result<Self> {
+  pub fn new(
+    env: Env,
+    model: &Model,
+    license_key: String,
+    otel_config: Option<OtelConfig>,
+  ) -> Result<Self> {
+    let model_inner = model.inner()?;
     claim_sdk_id();
     let inner = match otel_config {
       Some(config) => {
-        aic_sdk::Processor::with_otel_config(&model.inner, &license_key, &config.into())
+        aic_sdk::Processor::with_otel_config(model_inner, &license_key, &config.into())
       }
-      None => aic_sdk::Processor::new(&model.inner, &license_key),
+      None => aic_sdk::Processor::new(model_inner, &license_key),
     };
-    Ok(Self {
-      inner: map_err(inner)?,
-    })
+    let inner = map_err(inner)?;
+    mem::adjust(env, mem::PROCESSOR_BYTES);
+
+    Ok(Self { inner: Some(inner) })
+  }
+
+  /// Destroys the native processor immediately, releasing its memory and telemetry
+  /// session without waiting for garbage collection.
+  ///
+  /// Every later method throws; calling `dispose()` again does nothing.
+  #[napi]
+  pub fn dispose(&mut self, env: Env) {
+    if self.inner.take().is_some() {
+      mem::adjust(env, -mem::PROCESSOR_BYTES);
+    }
   }
 
   /// Configures the processor for an audio format. Must be called before processing.
@@ -117,11 +164,11 @@ impl Processor {
     block_size: u32,
     variable_block_size: Option<bool>,
   ) -> Result<()> {
-    map_err(
-      self
-        .inner
-        .initialize(&audio_config(sample_rate, block_size, variable_block_size)),
-    )
+    map_err(self.inner_mut()?.initialize(&audio_config(
+      sample_rate,
+      block_size,
+      variable_block_size,
+    )))
   }
 
   /// Enhances a mono audio block in place.
@@ -140,17 +187,17 @@ impl Processor {
     // break that assumption, which is inherent to processing JS-owned buffers in place.
     let samples = unsafe { audio.as_mut() };
 
-    map_err(self.inner.process(samples))
+    map_err(self.inner_mut()?.process(samples))
   }
 
   /// Creates a handle for reading and writing this processor's parameters and state.
   ///
   /// Each call returns an independent handle onto the same processor.
   #[napi]
-  pub fn get_context(&self) -> ProcessorContext {
-    ProcessorContext {
-      inner: self.inner.context(),
-    }
+  pub fn get_context(&self) -> Result<ProcessorContext> {
+    Ok(ProcessorContext {
+      inner: self.inner()?.context(),
+    })
   }
 
   /// Ends this processor's telemetry session, after which it can no longer process audio.
@@ -159,14 +206,17 @@ impl Processor {
   /// is collected, but GC timing is not guaranteed. May block, so keep it off the audio path.
   #[napi]
   pub fn terminate_session(&mut self) -> Result<()> {
-    map_err(self.inner.terminate_session())
+    map_err(self.inner_mut()?.terminate_session())
   }
 }
 
 /// Control handle for a {@link Processor}.
 ///
-/// Every method may be called while audio is being processed. Releasing the handle does
-/// not destroy the processor it came from.
+/// Every method may be called while audio is being processed. The handle and the processor
+/// have independent lifetimes in both directions: releasing the handle does not destroy
+/// the processor it came from, and the handle stays valid after its processor is disposed
+/// or garbage-collected. Calls on it keep succeeding; they just no longer reach a live
+/// processor.
 #[napi]
 pub struct ProcessorContext {
   pub(crate) inner: aic_sdk::ProcessorContext,

@@ -36,7 +36,7 @@ test('sdk reports a version', (t) => {
 })
 
 test('sdk expects the model version the fixtures are published under', (t) => {
-  // Guards against the fixture URLs in models.ts drifting from the addon's expectation,
+  // Guards against the fixture ids in models.ts drifting from the addon's expectation,
   // which would otherwise surface as a confusing "model version unsupported" much later.
   t.is(getCompatibleModelVersion(), TEST_MODEL_VERSION)
 })
