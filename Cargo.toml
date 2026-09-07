@@ -6,7 +6,7 @@ exclude = ["index.node"]
 license = "Apache-2.0"
 name = "aic-sdk-node"
 rust-version = "1.87"
-version = "0.23.0"
+version = "0.23.1"
 
 [lib]
 crate-type = ["cdylib"]
