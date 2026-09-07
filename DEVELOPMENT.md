@@ -26,7 +26,7 @@ The npm version tracks the version of the `aic-sdk` Rust crate it wraps. Bump
 merge commit:
 
 ```bash
-git tag 0.24.0 && git push origin 0.24.0
+git tag x.x.x && git push origin x.x.x
 ```
 
 Pushing the tag builds all six targets, runs the tests and examples, and publishes to npm.
