@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "strict": true,
+    // `node10` resolution was removed in TypeScript 7. `nodenext` honours the package's
+    // "type": "commonjs", so the emitted module kind is unchanged.
+    "moduleResolution": "nodenext",
+    "module": "nodenext",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    // Named explicitly: the tests and benchmark use node builtins, and these are not picked
+    // up automatically under this layout.
+    "types": ["node"]
+  },
+  "include": ["."],
+  "exclude": ["node_modules", "benchmark", "__test__"]
+}

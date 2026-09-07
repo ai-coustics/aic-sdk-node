@@ -1,249 +1,236 @@
-use std::sync::Mutex;
-
-use neon::{
-    object::Object,
-    prelude::{Context, FunctionContext},
-    result::{JsResult, NeonResult},
-    types::{
-        Finalize, JsArray, JsBox, JsNull, JsNumber, JsObject, JsString, JsTypedArray, JsUndefined,
-        JsValue, buffer::TypedArray,
-    },
+use crate::{
+  claim_sdk_id,
+  disposable_slot::{DisposableSlot, lock},
+  error::{Result, map_err},
+  mem,
+  model::Model,
+  processor::audio_config,
 };
 
-use crate::model::Model;
-use crate::util::parse_processor_config;
+use napi::{
+  Env, Task,
+  bindgen_prelude::ObjectFinalize,
+  bindgen_prelude::{AsyncTask, Float32Array},
+};
+use napi_derive::napi;
+use std::sync::{Arc, Mutex};
 
-/// Builds a JS object with the camelCase analysis-result fields from an SDK result.
-fn analysis_result_to_object<'a, C: Context<'a>>(
-    cx: &mut C,
-    result: &aic_sdk::AnalysisResult,
-) -> JsResult<'a, JsObject> {
-    let obj = cx.empty_object();
-    let fields: [(&str, f32); 7] = [
-        ("riskScore", result.risk_score),
-        ("speakerReverb", result.speaker_reverb),
-        ("speakerLoudness", result.speaker_loudness),
-        ("interferingSpeech", result.interfering_speech),
-        ("noise", result.noise),
-        ("codecDegradation", result.codec_degradation),
-        ("packetLoss", result.packet_loss),
-    ];
-    for (key, value) in fields {
-        let number = cx.number(value as f64);
-        obj.set(cx, key, number)?;
+/// Results of analyzing an audio signal with {@link Analyzer}.
+///
+/// Scores range from 0.0 to 1.0. For every field except `speakerLoudness`, lower values
+/// indicate less problematic audio.
+#[napi(object)]
+pub struct AnalysisResult {
+  /// Predicts the likelihood of failure in downstream models, including speech-to-text,
+  /// voice activity detection, turn-taking and speech-to-speech models.
+  pub risk_score: f64,
+  /// Measure of speaker distance and reverberation.
+  pub speaker_reverb: f64,
+  /// Measure of speaker loudness.
+  pub speaker_loudness: f64,
+  /// Measure of interfering speech from sources other than the main speaker.
+  pub interfering_speech: f64,
+  /// Measure of ambient or environmental noise.
+  pub noise: f64,
+  /// Measure of artifacts from lossy speech codecs, such as low bitrate or narrowband codecs.
+  pub codec_degradation: f64,
+  /// Measure of audio dropouts and discontinuities from packet loss, frame erasure, jitter or CPU
+  /// overload.
+  pub packet_loss: f64,
+}
+
+impl From<aic_sdk::AnalysisResult> for AnalysisResult {
+  fn from(result: aic_sdk::AnalysisResult) -> Self {
+    Self {
+      risk_score: result.risk_score.into(),
+      speaker_reverb: result.speaker_reverb.into(),
+      speaker_loudness: result.speaker_loudness.into(),
+      interfering_speech: result.interfering_speech.into(),
+      noise: result.noise.into(),
+      codec_degradation: result.codec_degradation.into(),
+      packet_loss: result.packet_loss.into(),
     }
-    Ok(obj)
+  }
 }
 
-/// Collects audio blocks for later analysis by an [`Analyzer`].
+/// Analyzes audio quality using an analysis model, such as Tyto.
 ///
-/// Created together with an [`Analyzer`] via `analyzerPair`.
-pub struct Collector {
-    inner: Mutex<aic_sdk::Collector>,
-}
-
-impl Finalize for Collector {}
-
-/// Runs an analysis model over the audio collected by a [`Collector`].
+/// Call {@link Analyzer#initialize}, then {@link Analyzer#buffer} to collect mono audio.
+/// The model determines how much audio is retained; older samples are discarded as new
+/// audio arrives.
 ///
-/// Created together with a [`Collector`] via `analyzerPair`.
+/// Run {@link Analyzer#analyzeAsync} to analyze the buffered audio on a libuv worker
+/// thread, or {@link Analyzer#analyze} to run it on the calling thread. Analysis is
+/// computationally expensive and should not run in audio processing callbacks.
+/// Buffering remains synchronous and can continue while async analysis is running.
+#[napi(custom_finalize)]
 pub struct Analyzer {
-    inner: Mutex<aic_sdk::Analyzer<'static>>,
+  // Both SDK objects own their state and retain the memory-mapped model as needed.
+  // Only the analyzer is shared with workers; collector access does not take its lock.
+  collector: DisposableSlot<aic_sdk::Collector>,
+  analyzer: Arc<Mutex<DisposableSlot<aic_sdk::Analyzer<'static>>>>,
 }
 
-impl Finalize for Analyzer {}
-
-/// Creates a collector/analyzer pair for non-real-time analysis.
-///
-/// Returns a JS object with `collector` and `analyzer` native handles.
-pub fn analyzer_pair(mut cx: FunctionContext) -> JsResult<JsObject> {
-    let model = cx.argument::<JsBox<Model>>(0)?;
-    let license_key = cx.argument::<JsString>(1)?.value(&mut cx);
-
-    // SAFETY: This function has no safety requirements.
-    unsafe {
-        aic_sdk::set_sdk_id(4);
+impl ObjectFinalize for Analyzer {
+  fn finalize(mut self, env: Env) -> Result<()> {
+    // A pending task can retain the analyzer after this finalizer; see `DisposableSlot`.
+    // The SDK permits the collector and analyzer to be destroyed independently, so the
+    // collector can be released during analysis. Both releases are idempotent.
+    self.collector.release(env);
+    if Arc::strong_count(&self.analyzer) == 1 {
+      lock(&self.analyzer).release(env);
     }
-
-    let (collector, analyzer) = aic_sdk::analyzer_pair(&model.inner, &license_key)
-        .or_else(|e| cx.throw_error(e.to_string()))?;
-
-    let collector_box = cx.boxed(Collector {
-        inner: Mutex::new(collector),
-    });
-    let analyzer_box = cx.boxed(Analyzer {
-        inner: Mutex::new(analyzer),
-    });
-
-    let result = cx.empty_object();
-    result.set(&mut cx, "collector", collector_box)?;
-    result.set(&mut cx, "analyzer", analyzer_box)?;
-
-    Ok(result)
-}
-
-impl Collector {
-    pub fn initialize(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-        let this = cx.argument::<JsBox<Collector>>(0)?;
-        let config = parse_processor_config(&mut cx, 1)?;
-
-        let mut collector = this.inner.lock().unwrap();
-
-        collector
-            .initialize(&config)
-            .or_else(|e| cx.throw_error(e.to_string()))?;
-
-        Ok(cx.undefined())
-    }
-
-    pub fn buffer(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-        let this = cx.argument::<JsBox<Collector>>(0)?;
-        let audio_block = cx.argument::<JsTypedArray<f32>>(1)?;
-        let samples = audio_block.as_slice(&cx);
-
-        let mut collector = this.inner.lock().unwrap();
-        collector
-            .buffer(samples)
-            .or_else(|e| cx.throw_error(e.to_string()))?;
-
-        Ok(cx.undefined())
-    }
-}
-
-impl Analyzer {
-    pub fn reset(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-        let this = cx.argument::<JsBox<Analyzer>>(0)?;
-        let analyzer = this.inner.lock().unwrap();
-        analyzer
-            .reset()
-            .or_else(|e| cx.throw_error(e.to_string()))?;
-        Ok(cx.undefined())
-    }
-
-    pub fn analyze_buffered(mut cx: FunctionContext) -> JsResult<JsObject> {
-        let this = cx.argument::<JsBox<Analyzer>>(0)?;
-
-        let result = {
-            let mut analyzer = this.inner.lock().unwrap();
-            analyzer
-                .analyze_buffered()
-                .or_else(|e| cx.throw_error(e.to_string()))?
-        };
-
-        analysis_result_to_object(&mut cx, &result)
-    }
-
-    pub fn terminate_session(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-        let this = cx.argument::<JsBox<Analyzer>>(0)?;
-        let mut analyzer = this.inner.lock().unwrap();
-
-        analyzer
-            .terminate_session()
-            .or_else(|e| cx.throw_error(e.to_string()))?;
-
-        Ok(cx.undefined())
-    }
-
-    pub fn update_bearer_token(mut cx: FunctionContext) -> JsResult<JsUndefined> {
-        let this = cx.argument::<JsBox<Analyzer>>(0)?;
-        let token = cx.argument::<JsString>(1)?.value(&mut cx);
-
-        let analyzer = this.inner.lock().unwrap();
-        analyzer
-            .update_bearer_token(&token)
-            .or_else(|e| cx.throw_error(e.to_string()))?;
-
-        Ok(cx.undefined())
-    }
-}
-
-/// Analyzes complete mono audio signals held in memory.
-///
-/// Wraps the SDK [`aic_sdk::FileAnalyzer`], which owns a [`Collector`]/[`Analyzer`] pair and
-/// performs the windowing, zero-padding and reset logic itself. Created via `fileAnalyzerNew`.
-pub struct FileAnalyzer {
-    inner: Mutex<aic_sdk::FileAnalyzer<'static, 'static>>,
-}
-
-impl Finalize for FileAnalyzer {}
-
-impl FileAnalyzer {
-    pub fn new(mut cx: FunctionContext) -> JsResult<JsBox<Self>> {
-        let model = cx.argument::<JsBox<Model>>(0)?;
-        let license_key = cx.argument::<JsString>(1)?.value(&mut cx);
-
-        // SAFETY: This function has no safety requirements.
-        unsafe {
-            aic_sdk::set_sdk_id(4);
-        }
-
-        // SAFETY: aic_sdk::FileAnalyzer borrows the model for the analyzer's lifetime so the native
-        // analyzer can keep reading the model's weights. The JS FileAnalyzer wrapper retains the
-        // Model object (this._model = model), keeping the boxed Model alive for at least as long as
-        // this FileAnalyzer, so extending the borrow to 'static is sound. This mirrors the 'static
-        // coercion the rest of the binding already relies on (Model<'static>, Analyzer<'static>).
-        let model_ref: &'static aic_sdk::Model<'static> =
-            unsafe { std::mem::transmute(&model.inner) };
-
-        let file_analyzer = aic_sdk::FileAnalyzer::new(model_ref, &license_key)
-            .or_else(|e| cx.throw_error(e.to_string()))?;
-
-        Ok(cx.boxed(FileAnalyzer {
-            inner: Mutex::new(file_analyzer),
-        }))
-    }
-
-    pub fn analyze(mut cx: FunctionContext) -> JsResult<JsArray> {
-        let this = cx.argument::<JsBox<FileAnalyzer>>(0)?;
-        let audio = cx.argument::<JsTypedArray<f32>>(1)?;
-        let sample_rate = cx.argument::<JsNumber>(2)?.value(&mut cx) as u32;
-
-        // The step argument is optional: null or undefined means "no overlap" (the SDK defaults
-        // it to the analysis window size).
-        let step_arg = cx.argument::<JsValue>(3)?;
-        let step_samples: Option<usize> =
-            if step_arg.is_a::<JsNull, _>(&mut cx) || step_arg.is_a::<JsUndefined, _>(&mut cx) {
-                None
-            } else {
-                Some(
-                    step_arg
-                        .downcast_or_throw::<JsNumber, _>(&mut cx)?
-                        .value(&mut cx) as usize,
-                )
-            };
-
-        // Borrow the audio without copying and run the analysis. The slice borrows the context
-        // immutably, so this block must end before we build the JS result with `&mut cx`.
-        let results = {
-            let samples = audio.as_slice(&cx);
-            let mut analyzer = this.inner.lock().unwrap();
-            analyzer.analyze(samples, sample_rate, step_samples)
-        };
-        let results = results.or_else(|e| cx.throw_error(e.to_string()))?;
-
-        let array = cx.empty_array();
-        for (index, result) in results.iter().enumerate() {
-            let obj = analysis_result_to_object(&mut cx, result)?;
-            array.set(&mut cx, index as u32, obj)?;
-        }
-
-        Ok(array)
-    }
-}
-
-pub fn register_exports(cx: &mut neon::prelude::ModuleContext) -> NeonResult<()> {
-    cx.export_function("analyzerPair", analyzer_pair)?;
-
-    cx.export_function("fileAnalyzerNew", FileAnalyzer::new)?;
-    cx.export_function("fileAnalyzerAnalyze", FileAnalyzer::analyze)?;
-
-    cx.export_function("collectorInitialize", Collector::initialize)?;
-    cx.export_function("collectorBuffer", Collector::buffer)?;
-
-    cx.export_function("analyzerReset", Analyzer::reset)?;
-    cx.export_function("analyzerAnalyzeBuffered", Analyzer::analyze_buffered)?;
-    cx.export_function("analyzerTerminateSession", Analyzer::terminate_session)?;
-    cx.export_function("analyzerUpdateBearerToken", Analyzer::update_bearer_token)?;
-
     Ok(())
+  }
+}
+
+#[napi]
+impl Analyzer {
+  /// Creates an analyzer from an analysis model.
+  ///
+  /// Construction allocates memory. Call {@link Analyzer#initialize} before buffering audio.
+  ///
+  /// @param model - Analysis model. Other model types are rejected.
+  /// @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
+  #[napi(constructor)]
+  pub fn new(env: Env, model: &Model, license_key: String) -> Result<Self> {
+    let model_inner = model.inner()?;
+    claim_sdk_id();
+    let (collector, analyzer) = map_err(aic_sdk::analyzer_pair(model_inner, &license_key))?;
+
+    Ok(Self {
+      collector: DisposableSlot::new(env, collector, "Analyzer", mem::COLLECTOR_BYTES),
+      analyzer: Arc::new(Mutex::new(DisposableSlot::new(
+        env,
+        analyzer,
+        "Analyzer",
+        mem::ANALYZER_BYTES,
+      ))),
+    })
+  }
+
+  /// Destroys the native collector and analyzer without waiting for garbage collection.
+  ///
+  /// After disposal, all methods except `dispose()` fail. Repeated disposal has no effect.
+  /// This call blocks the calling thread while a worker holds the analyzer lock.
+  /// Queued analysis that acquires the lock after disposal rejects its promise.
+  #[napi]
+  pub fn dispose(&mut self, env: Env) {
+    // The SDK allows collector destruction during analysis. Releasing the analyzer
+    // requires its lock and waits if a worker currently holds it.
+    self.collector.release(env);
+    lock(&self.analyzer).release(env);
+  }
+
+  /// Configures the analyzer's audio collector.
+  ///
+  /// Call this before buffering audio. Use {@link Model#getOptimalSampleRate} and
+  /// {@link Model#getOptimalBlockSize} to avoid internal resampling and rebuffering.
+  /// This method allocates memory; avoid calling it from audio processing callbacks.
+  ///
+  /// @param sampleRate - Audio sample rate in Hz.
+  /// @param blockSize - Number of mono samples per block.
+  /// @param variableBlockSize - Allow blocks shorter than `blockSize`. Defaults to `false`.
+  ///   Blocks larger than `blockSize` are always rejected.
+  #[napi]
+  pub fn initialize(
+    &mut self,
+    sample_rate: u32,
+    block_size: u32,
+    variable_block_size: Option<bool>,
+  ) -> Result<()> {
+    map_err(self.collector.get_mut()?.initialize(&audio_config(
+      sample_rate,
+      block_size,
+      variable_block_size,
+    )))
+  }
+
+  /// Buffers a mono audio block for later analysis without modifying the input.
+  ///
+  /// Call {@link Analyzer#initialize} first. The block must contain exactly `blockSize`
+  /// samples, or at most `blockSize` if `variableBlockSize` is enabled.
+  /// Buffering does not acquire the analyzer lock and can run during async analysis.
+  #[napi]
+  pub fn buffer(&mut self, audio: Float32Array) -> Result<()> {
+    map_err(self.collector.get_mut()?.buffer(&audio))
+  }
+
+  /// Analyzes buffered audio on the calling thread and returns the scores.
+  ///
+  /// The model analyzes a fixed duration of audio. If less audio has been buffered, the
+  /// remaining input is padded with silence.
+  ///
+  /// This method blocks the calling thread. Use {@link Analyzer#analyzeAsync} to keep the
+  /// event loop available. For multichannel audio, mix down to mono or use one analyzer
+  /// per channel.
+  #[napi]
+  pub fn analyze(&self) -> Result<AnalysisResult> {
+    map_err(lock(&self.analyzer).get_mut()?.analyze_buffered()).map(AnalysisResult::from)
+  }
+
+  /// Analyzes buffered audio on a libuv worker thread and returns a promise for the scores.
+  ///
+  /// Uses the same analysis and silence padding as {@link Analyzer#analyze}.
+  /// {@link Analyzer#buffer} can continue collecting audio while analysis runs.
+  ///
+  /// Synchronous calls to `analyze`, `reset`, `updateBearerToken`, `terminateSession` and
+  /// `dispose` wait for the analyzer lock and may block while analysis is running.
+  #[napi(ts_return_type = "Promise<AnalysisResult>")]
+  pub fn analyze_async(&self) -> AsyncTask<AnalyzeTask> {
+    AsyncTask::new(AnalyzeTask {
+      analyzer: self.analyzer.clone(),
+    })
+  }
+
+  /// Clears buffered audio and internal state while preserving the configured audio settings.
+  #[napi]
+  pub fn reset(&self) -> Result<()> {
+    map_err(lock(&self.analyzer).get_mut()?.reset())
+  }
+
+  /// Replaces the bearer token on the running analyzer.
+  ///
+  /// Use this to refresh a JWT without recreating the instance. Both the original license
+  /// key and the new token must be JWTs. If this call fails, the previous token remains active.
+  ///
+  /// A successful call validates the token's format and applies it immediately. Backend
+  /// acceptance is checked later. If the backend rejects the token, the SDK retries with
+  /// backoff; analysis may be rejected if no accepted token arrives in time.
+  /// Supply a valid token to recover the session.
+  ///
+  /// This method allocates memory and takes a mutex. Avoid calling it from audio processing callbacks.
+  #[napi]
+  pub fn update_bearer_token(&self, token: String) -> Result<()> {
+    map_err(lock(&self.analyzer).get_mut()?.update_bearer_token(&token))
+  }
+
+  /// Terminates the telemetry session associated with this analyzer.
+  ///
+  /// Once termination is handled, the analyzer can no longer analyze buffered audio.
+  /// The session also ends when the native analyzer is destroyed. This method may block;
+  /// avoid calling it from audio processing callbacks. If another session is still active,
+  /// termination can complete asynchronously.
+  #[napi]
+  pub fn terminate_session(&self) -> Result<()> {
+    map_err(lock(&self.analyzer).get_mut()?.terminate_session())
+  }
+}
+
+/// Runs analysis on a worker while the collector remains accessible on the JavaScript thread.
+pub struct AnalyzeTask {
+  analyzer: Arc<Mutex<DisposableSlot<aic_sdk::Analyzer<'static>>>>,
+}
+
+impl Task for AnalyzeTask {
+  type Output = aic_sdk::AnalysisResult;
+  type JsValue = AnalysisResult;
+
+  fn compute(&mut self) -> Result<aic_sdk::AnalysisResult> {
+    map_err(lock(&self.analyzer).get_mut()?.analyze_buffered())
+  }
+
+  fn resolve(&mut self, _env: Env, result: aic_sdk::AnalysisResult) -> Result<AnalysisResult> {
+    Ok(result.into())
+  }
 }

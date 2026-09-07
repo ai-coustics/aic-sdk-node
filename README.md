@@ -1,11 +1,13 @@
-# aic-sdk - Node.js Bindings for ai-coustics SDK
+# @ai-coustics/aic-sdk
 
-Node.js wrapper for the ai-coustics SDK.
+Node.js bindings for the ai-coustics SDK: speech enhancement, voice
+activity detection and audio analysis.
 
-For comprehensive documentation, visit [docs.ai-coustics.com](https://docs.ai-coustics.com).
+For product documentation see [docs.ai-coustics.com](https://docs.ai-coustics.com).
 
 > [!NOTE]
-> This SDK requires a license key. Generate your key at [developers.ai-coustics.com](https://developers.ai-coustics.com).
+> This SDK requires a license key. Generate one at
+> [developers.ai-coustics.com](https://developers.ai-coustics.com).
 
 ## Installation
 
@@ -13,317 +15,313 @@ For comprehensive documentation, visit [docs.ai-coustics.com](https://docs.ai-co
 npm install @ai-coustics/aic-sdk
 ```
 
-## Quick Start
+Prebuilt binaries are published for macOS (x64, arm64), Linux (x64, arm64, glibc) and
+Windows (x64, arm64, MSVC). The native SDK is linked statically, so there is no separate
+library to install or put on a search path.
+
+## Quick start
 
 ```javascript
-const { Model, Processor } = require("@ai-coustics/aic-sdk");
+const { Model, Processor } = require('@ai-coustics/aic-sdk')
 
-// Get your license key from the environment variable
-const licenseKey = process.env.AIC_SDK_LICENSE;
+async function main() {
+  // Download a model once, or fetch one manually from https://artifacts.ai-coustics.io
+  const modelPath = await Model.download('quail-vf-2.2-s-16khz', './models')
+  const model = Model.fromFile(modelPath)
 
-// Download and load a model (or download manually at https://artifacts.ai-coustics.io/)
-const modelPath = Model.download("quail-vf-2.2-s-16khz", "./models");
-const model = Model.fromFile(modelPath);
+  // Use the model's optimal configuration for the lowest delay
+  const sampleRate = model.getOptimalSampleRate()
+  const blockSize = model.getOptimalBlockSize(sampleRate)
 
-// Get optimal configuration
-const sampleRate = model.getOptimalSampleRate();
-const blockSize = model.getOptimalBlockSize(sampleRate);
+  const processor = new Processor(model, process.env.AIC_SDK_LICENSE)
+  processor.initialize(sampleRate, blockSize)
 
-// Create and initialize processor
-const processor = new Processor(model, licenseKey);
-processor.initialize(sampleRate, blockSize, false);
+  // Enhance a mono block in place
+  const audio = new Float32Array(blockSize)
+  processor.process(audio)
+}
 
-// Process mono audio (Float32Array, modified in-place)
-const audioBlock = new Float32Array(blockSize);
-processor.process(audioBlock);
+main()
 ```
 
-## Usage
+Processing is mono. For multichannel audio, mix down to mono or use one processor per
+channel. Initialize each instance before passing audio. Blocks must contain exactly
+`blockSize` samples. Set the third `initialize` argument, `variableBlockSize`, to `true`
+to allow shorter blocks; longer blocks are always rejected. This also applies to VAD
+processing and analyzer buffering.
 
-### SDK Information
+The following snippets assume an enclosing `async` function. CommonJS files do not support
+top-level `await`.
+
+Runnable scripts for enhancement, VAD, analysis and whole-file processing, synchronous and
+async, are in [`examples/`](examples).
+
+## Models
+
+Available models and their IDs are listed at
+[artifacts.ai-coustics.io](https://artifacts.ai-coustics.io). Each class accepts the model types
+listed below and rejects other types:
+
+| Class                         | Accepted models     |
+| ----------------------------- | ------------------- |
+| `Processor`, `ProcessorAsync` | enhancement, bypass |
+| `Vad`, `VadAsync`             | dedicated VAD       |
+| `Analyzer`                    | analysis            |
+
+`Model.download` runs on Node's libuv thread pool and returns a promise for the model's path.
+`Model.fromFile` memory-maps the file. Do not modify or delete it while the model or any
+instance created from it is still alive.
+
+## Enhancement
+
+Parameters can be changed while audio is being processed, through a context handle:
 
 ```javascript
-const { getVersion, getCompatibleModelVersion } = require("@ai-coustics/aic-sdk");
+const { ProcessorParameter } = require('@ai-coustics/aic-sdk')
 
-// Get SDK version
-console.log(`SDK version: ${getVersion()}`);
+const context = processor.getContext()
 
-// Get compatible model version
-console.log(`Compatible model version: ${getCompatibleModelVersion()}`);
+context.setParameter(ProcessorParameter.EnhancementLevel, 0.8)
+context.setParameter(ProcessorParameter.Bypass, 0)
+
+console.log(context.getParameter(ProcessorParameter.EnhancementLevel))
+
+// Get the audio delay in samples to align the output with other streams
+console.log(context.getAudioDelay())
+
+// Clear internal state on a stream discontinuity or seek
+context.reset()
 ```
 
-### Loading Models
+## Async processing
 
-Download models and find available IDs at [artifacts.ai-coustics.io](https://artifacts.ai-coustics.io/).
+`ProcessorAsync` and `VadAsync` run initialization and processing on Node's libuv thread pool.
+Await these calls to keep the event loop available for other work, such as network requests.
+Construction and disposal remain synchronous.
 
-#### From File
+Use `Processor` or `Vad` on a dedicated worker thread, or in a batch script that can block
+the calling thread. These classes process each block without a promise or input copy.
+
 ```javascript
-const model = Model.fromFile("path/to/model.aicmodel");
+const { Model, ProcessorAsync } = require('@ai-coustics/aic-sdk')
+
+const processor = await new ProcessorAsync(model, process.env.AIC_SDK_LICENSE).withConfig(sampleRate, blockSize)
+
+// The input remains unmodified; the promise resolves to the enhanced samples.
+const audio = new Float32Array(blockSize)
+const enhanced = await processor.process(audio)
 ```
 
-#### Download from CDN
+Both async classes copy the input before queuing work and return a new `Float32Array`.
+`ProcessorAsync.process` returns enhanced samples; `VadAsync.process` returns the original
+samples. The caller's input remains unmodified.
+
+Context creation is asynchronous. The returned context's methods are synchronous and can
+be used while processing runs:
+
 ```javascript
-const modelPath = Model.download("quail-vf-2.2-s-16khz", "./models");
-const model = Model.fromFile(modelPath);
+const context = await processor.getContext()
+context.setParameter(ProcessorParameter.EnhancementLevel, 0.8)
 ```
 
-### Model Information
+### Running several streams
+
+Use one instance per stream and await each operation before submitting the next. Concurrent
+calls on one instance are not guaranteed to execute in submission order. Separate instances
+can process streams concurrently.
 
 ```javascript
-// Get model ID
-const modelId = model.getId();
+const processors = await Promise.all(
+  streams.map(() => new ProcessorAsync(model, licenseKey).withConfig(sampleRate, blockSize)),
+)
 
-// Get optimal sample rate for the model
-const optimalRate = model.getOptimalSampleRate();
-
-// Get optimal block size for a specific sample rate
-const optimalBlockSize = model.getOptimalBlockSize(48000);
+const enhanced = await Promise.all(processors.map((processor, i) => processor.process(blocks[i])))
 ```
 
-### Configuring the Processor
+Work runs on Node's libuv thread pool, which is four threads by default and shared with
+`fs`, `dns` and `crypto`. To run more streams in parallel, raise `UV_THREADPOOL_SIZE` before
+Node starts:
 
-```javascript
-// Create processor
-const processor = new Processor(model, licenseKey);
-
-// Initialize with audio settings
-processor.initialize(
-  sampleRate,          // Sample rate in Hz (8000 - 192000)
-  blockSize,           // Samples per processing call
-  variableBlockSize   // Allow variable block sizes (default: false)
-);
+```bash
+UV_THREADPOOL_SIZE=16 node server.js
 ```
 
-### OpenTelemetry Configuration
+`AIC_NUM_THREADS` does not apply to these bindings; async audio work uses libuv.
+
+## Voice activity detection
+
+VAD runs a dedicated VAD model and is driven independently of any processor.
 
 ```javascript
-const { Model, OtelConfig, Processor } = require("@ai-coustics/aic-sdk");
+const { Model, Vad, VadParameter } = require('@ai-coustics/aic-sdk')
 
-const licenseKey = process.env.AIC_SDK_LICENSE;
-const model = Model.fromFile("path/to/model.aicmodel");
+const vadModel = Model.fromFile(await Model.download('vad-2.1-xxs-16khz', './models'))
+const vad = new Vad(vadModel, process.env.AIC_SDK_LICENSE)
 
-// Override AIC_SDK_OTEL_ENABLE for this processor only.
-// The same configuration can be passed to a Vad.
-const otel = OtelConfig.withSessionId("session-1");
-const processor = new Processor(model, licenseKey, otel);
+const sampleRate = vadModel.getOptimalSampleRate()
+vad.initialize(sampleRate, vadModel.getOptimalBlockSize(sampleRate))
 
-// Other options:
-// const processor = new Processor(model, licenseKey, OtelConfig.enabled());
-// const processor = new Processor(model, licenseKey, OtelConfig.disabled());
+const context = vad.getContext()
+context.setParameter(VadParameter.Sensitivity, 0.8)
 
-// Control how often metrics are exported. Set to 0 to keep the SDK default
-// of 60000 ms.
-const fast = OtelConfig.enabled();
-fast.exportIntervalMs = 5000;
-const fastProcessor = new Processor(model, licenseKey, fast);
+vad.process(block) // reads the block, does not modify it
+
+if (context.isSpeechDetected()) {
+  console.log('speech')
+}
+
+// Raw model output, before speech-hold and thresholding
+console.log(context.getRawVadProbability())
 ```
 
-### Refreshing a JWT Bearer Token
+### Run the VAD on the original audio
 
-When the processor was created with a JWT license, you can swap in a renewed
-token while audio processing continues uninterrupted. If either the configured
-key or the new token is not a JWT, an error is thrown and the existing token
-stays in use.
+When enhancement and detection run together, feed the VAD the **original** input, not the
+processor's output. Enhancement is designed to change the signal, so detecting on its output
+means running the VAD on audio that no longer matches what its model expects, and it stacks
+the processor's delay on top of the prediction delay. Because `vad.process` leaves its input
+untouched, run it before enhancement. Configure both instances with the same sample rate and
+block size:
 
 ```javascript
-const model = Model.fromFile("path/to/model.aicmodel");
-const processor = new Processor(model, jwtLicense);
-const processorContext = processor.getContext();
-
-processorContext.updateBearerToken(renewedJwt);
+vad.process(block) // reads the block
+processor.process(block) // enhances it in place
 ```
 
-The same applies to `VadContext.updateBearerToken()` for a VAD created with a JWT license.
-
-### Processing Audio
+The two delays describe different things and are independent:
 
 ```javascript
-// Mono audio (Float32Array), enhanced in-place
-const audioBlock = new Float32Array(blockSize);
-processor.process(audioBlock);
+context.getAudioDelay() // enhanced audio lags the input by this many samples
+vadContext.getPredictionDelay() // the VAD decision lags the same input by this many
 ```
 
-### Ending a Session
+The prediction delay is not applied to the audio. Use it to align speech decisions with
+the input audio.
 
-Telemetry sessions end automatically when their processor, VAD, or analyzer is destroyed. Call
-`terminateSession()` to end one at a specific lifecycle event. The instance cannot process or
-analyze more audio afterwards.
+## Analysis
+
+Analysis models score audio quality. Collect audio with `buffer`, then run the model with
+`analyzeAsync` or `analyze`.
 
 ```javascript
-processor.terminateSession();
-// vad.terminateSession();
-// analyzer.terminateSession();
+const { Model, Analyzer } = require('@ai-coustics/aic-sdk')
+
+const analysisModel = Model.fromFile(await Model.download('tyto-1.1-l-16khz', './models'))
+const analyzer = new Analyzer(analysisModel, process.env.AIC_SDK_LICENSE)
+
+const sampleRate = analysisModel.getOptimalSampleRate()
+analyzer.initialize(sampleRate, analysisModel.getOptimalBlockSize(sampleRate))
+
+analyzer.buffer(block)
+
+// Runs the model on a worker thread. `analyze()` does the same on the calling thread.
+const result = await analyzer.analyzeAsync()
+console.log(result.riskScore, result.noise, result.speakerReverb)
 ```
 
-### Processor Context
+`buffer` is synchronous and does not acquire the analyzer lock. Audio collection can
+continue while `analyzeAsync` runs on a worker thread. Use `analyze` when blocking the
+calling thread is acceptable, such as in a CLI or dedicated worker.
+
+Analysis uses a fixed duration of audio determined by the model. Older samples are discarded
+as new audio arrives. If insufficient audio has been collected, analysis pads the remaining
+input with silence.
+
+Calls to `analyze`, `reset`, `updateBearerToken`, `terminateSession` and `dispose` acquire the
+analyzer lock and may block while async analysis is running. `initialize` only configures
+the collector.
+
+All scores range from 0.0 to 1.0. For every field except `speakerLoudness`, lower values
+indicate less problematic audio. `riskScore` predicts the likelihood of failure in downstream
+models such as speech-to-text, VAD or turn-taking.
+
+## Telemetry
+
+Telemetry follows the runtime environment (e.g. `AIC_SDK_OTEL_ENABLE`). To override it for a
+single instance:
 
 ```javascript
-const { ProcessorParameter } = require("@ai-coustics/aic-sdk");
-
-// Get processor context
-const procCtx = processor.getContext();
-
-// Get the delay applied to the audio in samples
-const delay = procCtx.getAudioDelay();
-
-// Reset processor state (clears internal state)
-procCtx.reset();
-
-// Set enhancement parameters
-procCtx.setParameter(ProcessorParameter.EnhancementLevel, 0.8);
-procCtx.setParameter(ProcessorParameter.Bypass, 0.0);
-
-// Get parameter values
-const level = procCtx.getParameter(ProcessorParameter.EnhancementLevel);
-console.log(`Enhancement level: ${level}`);
+const processor = new Processor(model, licenseKey, {
+  enable: true,
+  sessionId: 'my-session',
+  exportIntervalMs: 60000,
+})
 ```
 
-### Voice Activity Detection (VAD)
+A telemetry session ends when its native object is destroyed. Use `terminateSession()` to
+request termination at a specific lifecycle event. Once termination is handled, processors
+and VADs can no longer process audio, and analyzers can no longer analyze buffered audio.
+On `ProcessorAsync` and `VadAsync`, termination runs on a libuv worker thread and returns
+a promise because it may block.
 
-Voice activity detection runs on its own `Vad` instance, created from a dedicated VAD model
-(for example `vad-2.1-xxs-16khz`). Enhancement models are rejected.
+If your license key is a JWT, refresh it in place instead of rebuilding the object:
 
 ```javascript
-const { Model, Vad } = require("@ai-coustics/aic-sdk");
-
-const vadModelPath = Model.download("vad-2.1-xxs-16khz", "./models");
-const vadModel = Model.fromFile(vadModelPath);
-const sampleRate = vadModel.getOptimalSampleRate();
-const blockSize = vadModel.getOptimalBlockSize(sampleRate);
-
-const vad = new Vad(vadModel, licenseKey);
-vad.initialize(sampleRate, blockSize, false);
-
-// Feed mono audio to the detector. The audio block is not modified.
-const audioBlock = new Float32Array(blockSize);
-vad.process(audioBlock);
+context.updateBearerToken(renewedJwt)
 ```
 
-When enhancement and VAD run together, feed the VAD the original input audio, not the processor's
-enhanced output. Run both on the same block instead of chaining them:
+## Memory management
+
+`Model`, `Processor`, `ProcessorAsync`, `Vad`, `VadAsync` and `Analyzer` hold large native
+allocations behind small JavaScript objects. The binding reports estimated native memory
+usage to V8 so the garbage collector can account for these allocations. This influences
+collection frequency but does not guarantee when an object will be released.
+
+Use `dispose()` to release native resources at a specific point instead of waiting for
+garbage collection:
 
 ```javascript
-const audioBlock = new Float32Array(blockSize);
-
-vad.process(audioBlock); // reads the block, does not modify it
-processor.process(audioBlock); // enhances the block in place
-```
-
-Enhancement is designed to change the signal, so running the VAD on its output means detecting
-speech in audio that no longer matches what the VAD model expects, and it stacks the processor's
-audio delay on top of the VAD's prediction delay.
-
-The VAD context provides thread-safe access to the prediction, the VAD parameters and its state.
-You can create multiple contexts from one VAD.
-
-```javascript
-const { VadParameter } = require("@ai-coustics/aic-sdk");
-
-// Get VAD context from the VAD
-const vadContext = vad.getContext();
-
-// Configure VAD parameters. Sensitivity is the probability threshold of the model output.
-vadContext.setParameter(VadParameter.Sensitivity, 0.5);
-vadContext.setParameter(VadParameter.SpeechHoldDuration, 0.05);
-vadContext.setParameter(VadParameter.MinimumSpeechDuration, 0.0);
-
-// Get parameter values
-console.log(`VAD sensitivity: ${vadContext.getParameter(VadParameter.Sensitivity)}`);
-
-// How many samples the prediction lags behind the input. This delay is not applied to the
-// audio, Vad.process() leaves the buffer untouched.
-console.log(`Prediction delay: ${vadContext.getPredictionDelay()} samples`);
-
-// Check for speech (after processing audio through the VAD)
-console.log(`Speech detected: ${vadContext.isSpeechDetected()}`);
-console.log(`Raw probability: ${vadContext.rawVadProbability()}`);
-
-// Clear the prediction and all internal state, e.g. when the stream is interrupted
-vadContext.reset();
-```
-
-### Audio Analysis
-
-Analysis models (for example `tyto-1.1-l-16khz`) score audio quality instead of enhancing it. Use
-`FileAnalyzer` for complete audio files, or `analyzerPair` for streaming
-analysis.
-
-#### FileAnalyzer
-
-```javascript
-const { Model, FileAnalyzer } = require("@ai-coustics/aic-sdk");
-
-const licenseKey = process.env.AIC_SDK_LICENSE;
-const modelPath = Model.download("tyto-1.1-l-16khz", "./models");
-const model = Model.fromFile(modelPath);
-
-const analyzer = new FileAnalyzer(model, licenseKey);
-
-// Mono Float32 samples. No channel mixing or resampling is performed.
-const sampleRate = 16000;
-const audio = new Float32Array(sampleRate * 12); // 12 seconds
-
-// Analyze independent five-second windows. Pass a step in samples to control overlap,
-// or omit it to step by the full window (no overlap).
-const results = analyzer.analyze(audio, sampleRate, sampleRate * 5);
-
-for (const result of results) {
-  console.log("Risk score:", result.riskScore);
-  console.log("Noise:", result.noise);
-  console.log("Packet loss:", result.packetLoss);
+const processor = new Processor(model, licenseKey)
+try {
+  processor.initialize(sampleRate, blockSize)
+  processor.process(block)
+} finally {
+  processor.dispose()
 }
 ```
 
-Each result is an object with the fields `riskScore`, `speakerReverb`, `speakerLoudness`,
-`interferingSpeech`, `noise`, `codecDegradation` and `packetLoss`. All scores are in the range 0.0
-to 1.0. For every field except `speakerLoudness`, lower values indicate less problematic audio.
+After `dispose()`, all methods except `dispose()` fail; repeated disposal has no effect.
+Async methods reject their promises. Disposal blocks the calling thread if a worker holds
+the native object's lock. Queued work that acquires the lock after disposal fails.
 
-#### Collector and Analyzer pair
+Disposing a model releases its reference to the model data. Processors, VADs and analyzers
+created from it retain their own references and remain usable.
 
-```javascript
-const { Model, analyzerPair } = require("@ai-coustics/aic-sdk");
+Cleanup timing also affects native memory usage:
 
-const model = Model.fromFile("path/to/tyto-1.1-l-16khz.aicmodel");
-const { collector, analyzer } = analyzerPair(model, licenseKey);
+- Native cleanup runs on the event loop when the object is finalized, not synchronously at
+  garbage collection. Finalizers run on event-loop turns, so batches that create many of
+  these objects back to back hold native memory until the loop turns. An `await` on an
+  already-resolved promise (a microtask) is not enough; real async boundaries such as I/O,
+  `setTimeout` or `setImmediate` are. A tight synchronous loop that creates thousands of
+  objects accumulates their native memory for the duration of the loop; create these
+  objects per unit of work behind real async boundaries, or reuse a single instance.
+- RSS may remain elevated after disposal because the allocator can retain freed memory
+  for reuse. Peak memory use depends on the number of concurrently live instances,
+  including objects awaiting finalization.
 
-const sampleRate = model.getOptimalSampleRate();
-const blockSize = model.getOptimalBlockSize(sampleRate);
-collector.initialize(sampleRate, blockSize, false);
+## Development
 
-// Pass one mono audio block at a time (for example on an audio thread).
-const audioBlock = new Float32Array(blockSize);
-collector.buffer(audioBlock);
-
-// Analyze the collected audio off the audio thread.
-const result = analyzer.analyzeBuffered();
-console.log("Risk score:", result.riskScore);
-
-// Clear state when the stream is interrupted or when seeking.
-analyzer.reset();
-```
-
-## Examples
-
-See the example files for complete working examples:
-
-- [`examples/enhancement.js`](examples/enhancement.js) - Basic usage example
-- [`examples/vad.js`](examples/vad.js) - Voice activity detection with a dedicated VAD model
-- [`examples/analysis.js`](examples/analysis.js) - Audio analysis with `FileAnalyzer` and `analyzerPair`
-- [`examples/file-processing.js`](examples/file-processing.js) - Enhance a WAV file block by block
-
-Run examples with:
+Requires a recent Rust toolchain and Node 18+.
 
 ```bash
-export AIC_SDK_LICENSE="your_license_key_here"
-node examples/enhancement.js
+pnpm install
+pnpm build            # release build; use build:debug while iterating
+pnpm pretest          # download model fixtures into __test__/data
+AIC_SDK_LICENSE=<key> pnpm test
 ```
 
-## Documentation
+The native library for the host target is downloaded during `cargo build`, so the first
+build needs network access.
 
-- **Full Documentation**: [docs.ai-coustics.com](https://docs.ai-coustics.com)
-- **Node.js API Reference**: See the [index.js](index.js) for detailed JSDoc documentation
-- **Available Models**: [artifacts.ai-coustics.io](https://artifacts.ai-coustics.io)
+To benchmark, point the harness at a model file:
+
+```bash
+AIC_SDK_LICENSE=<key> AIC_SDK_MODEL=__test__/data/<model>.aicmodel pnpm bench
+```
 
 ## License
 
-This Node.js wrapper is distributed under the Apache 2.0 license. The core C SDK is distributed under the proprietary AIC-SDK license.
+This Node wrapper is distributed under the Apache 2.0 license (`LICENSE`). The core SDK it
+links against is distributed under the proprietary AIC-SDK license
+(`LICENSE.AIC_SDK`).
