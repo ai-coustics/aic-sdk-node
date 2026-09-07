@@ -302,23 +302,8 @@ Cleanup timing also affects native memory usage:
 
 ## Development
 
-Requires a recent Rust toolchain and Node 18+.
-
-```bash
-pnpm install
-pnpm build            # release build; use build:debug while iterating
-pnpm pretest          # download model fixtures into __test__/data
-AIC_SDK_LICENSE=<key> pnpm test
-```
-
-The native library for the host target is downloaded during `cargo build`, so the first
-build needs network access.
-
-To benchmark, point the harness at a model file:
-
-```bash
-AIC_SDK_LICENSE=<key> AIC_SDK_MODEL=__test__/data/<model>.aicmodel pnpm bench
-```
+Building, testing, benchmarking and releasing this package are covered in
+[DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## License
 
