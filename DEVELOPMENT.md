@@ -26,17 +26,22 @@ The npm version tracks the version of the `aic-sdk` Rust crate it wraps. Bump
 merge commit:
 
 ```bash
-git tag vx.x.x && git push origin vx.x.x
+git tag x.x.x && git push origin x.x.x
 ```
-
-The `v` prefix is required: `napi prepublish` names the GitHub release `v<version>`, so a
-bare tag makes it create a second one alongside yours.
 
 Pushing the tag builds all six targets, runs the tests and examples, and publishes to npm.
 The tag must match the version in `package.json` or the publish step fails. A tag with a
-prerelease suffix, such as `v0.24.0-rc.1`, publishes under the `next` dist-tag instead of
+prerelease suffix, such as `0.24.0-rc.1`, publishes under the `next` dist-tag instead of
 `latest`.
 
-The GitHub release notes are the matching `CHANGELOG.md` section, extracted by
-`scripts/changelog-section.mjs`. A release whose version has no section there fails rather
-than publishing empty notes.
+The GitHub release is created from the tag with the matching `CHANGELOG.md` section as its
+notes, extracted by `scripts/changelog-section.mjs`. A release whose version has no section
+there fails rather than publishing empty notes. `napi prepublish` runs with
+`--no-gh-release` because it would otherwise create its own release under a `v`-prefixed
+tag.
+
+Publishing uses npm trusted publishing over OIDC, so there is no npm token in the
+repository. Each of the seven published packages (`@ai-coustics/aic-sdk` and its six
+platform packages) needs a trusted publisher on npmjs.com naming this repository and the
+workflow file `CI.yml`. npm rejects a publish whose workflow file does not match, with a
+404 on the `PUT` rather than a permission error.
