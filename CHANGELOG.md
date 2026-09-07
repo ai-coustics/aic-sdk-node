@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.24.0 - 2026-09-07
 
 Rewritten on [napi-rs](https://napi.rs), on top of the public `aic-sdk` Rust crate.
 
@@ -38,6 +38,17 @@ the binding and its type declarations are now generated from annotated Rust.
   These classes hold large native allocations behind small JavaScript objects; without the
   report the collector felt no pressure to reclaim dropped instances, so native memory
   grew unbounded.
+- **SDK-internal error reporting.** The SDK reports its own backend failures to ai-coustics error
+  tracking. Covered are failed session activations, failed usage reports, and bearer token refreshes
+  rejected by `ProcessorContext.updateBearerToken`, `VadContext.updateBearerToken` or
+  `Analyzer.updateBearerToken`.
+
+  A report contains the error class and message, the SDK version and wrapper, the model ID, the
+  operating system, the CPU architecture, and the account the license was issued to. It contains no
+  audio, no license key and no bearer token.
+
+  Disable reporting with `DO_NOT_TRACK=1`. The variable is read once per process. Licenses with an
+  offline entitlement never report.
 
 ### Changed
 
@@ -66,6 +77,19 @@ The API was modernized:
 
 - `FileAnalyzer`. Its convenience windowing is not yet reimplemented on the new binding;
   window over `Analyzer` directly in the meantime.
+
+## 0.23.1 - 2026-09-07
+
+### Improvements
+
+- `Model.download()` no longer fetches the artifact manifest on every call. A cached manifest is now
+  stored next to the models as `.manifest-cache.json` and serves every model until the validity
+  window returned by the artifact server expires.
+
+### Bug Fixes
+
+- Manifest requests now give up after 30 seconds. They previously had no timeout and could hang for
+  as long as the operating system kept retrying the connection.
 
 ## 0.23.0 - 2026-08-11
 
