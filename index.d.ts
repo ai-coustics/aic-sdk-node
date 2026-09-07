@@ -19,7 +19,7 @@ export declare class Analyzer {
    * Construction allocates memory. Call {@link Analyzer#initialize} before buffering audio.
    *
    * @param model - Analysis model. Other model types are rejected.
-   * @param licenseKey - SDK license key from https://developers.ai-coustics.com.
+   * @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
    */
   constructor(model: Model, licenseKey: string)
   /**
@@ -114,7 +114,7 @@ export declare class Model {
    * processor, VAD or analyzer created from it is still alive.
    *
    * Download models with {@link Model.download}. Available model IDs are listed at
-   * https://artifacts.ai-coustics.io.
+   * <https://artifacts.ai-coustics.io>.
    *
    * @param path - Path to the model file.
    * @throws If the file cannot be loaded or its format is incompatible with this SDK.
@@ -136,7 +136,7 @@ export declare class Model {
    * An existing file is reused if its checksum matches; otherwise it is replaced.
    * The download runs on Node's libuv thread pool.
    *
-   * @param modelId - Model ID listed at https://artifacts.ai-coustics.io.
+   * @param modelId - Model ID listed at <https://artifacts.ai-coustics.io>.
    * @param downloadDir - Directory in which to store the model.
    * @returns A promise for the downloaded or cached model's path.
    */
@@ -178,7 +178,7 @@ export declare class Processor {
    * {@link Processor#initialize} before processing audio.
    *
    * @param model - Enhancement or bypass model. Other model types are rejected.
-   * @param licenseKey - SDK license key from https://developers.ai-coustics.com.
+   * @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
    * @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
    *   the runtime environment.
    */
@@ -257,7 +257,7 @@ export declare class ProcessorAsync {
    * {@link ProcessorAsync#initialize} or {@link ProcessorAsync#withConfig} before processing audio.
    *
    * @param model - Enhancement or bypass model. Other model types are rejected.
-   * @param licenseKey - SDK license key from https://developers.ai-coustics.com.
+   * @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
    * @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
    *   the runtime environment.
    */
@@ -394,7 +394,7 @@ export declare class Vad {
    * {@link Vad#initialize} before processing audio.
    *
    * @param model - Dedicated VAD model. Other model types are rejected.
-   * @param licenseKey - SDK license key from https://developers.ai-coustics.com.
+   * @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
    * @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
    *   the runtime environment.
    */
@@ -472,7 +472,7 @@ export declare class VadAsync {
    * {@link VadAsync#initialize} or {@link VadAsync#withConfig} before processing audio.
    *
    * @param model - Dedicated VAD model. Other model types are rejected.
-   * @param licenseKey - SDK license key from https://developers.ai-coustics.com.
+   * @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
    * @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
    *   the runtime environment.
    */

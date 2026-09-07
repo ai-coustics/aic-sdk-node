@@ -42,7 +42,7 @@ impl Model {
   /// processor, VAD or analyzer created from it is still alive.
   ///
   /// Download models with {@link Model.download}. Available model IDs are listed at
-  /// https://artifacts.ai-coustics.io.
+  /// <https://artifacts.ai-coustics.io>.
   ///
   /// @param path - Path to the model file.
   /// @throws If the file cannot be loaded or its format is incompatible with this SDK.
@@ -73,7 +73,7 @@ impl Model {
   /// An existing file is reused if its checksum matches; otherwise it is replaced.
   /// The download runs on Node's libuv thread pool.
   ///
-  /// @param modelId - Model ID listed at https://artifacts.ai-coustics.io.
+  /// @param modelId - Model ID listed at <https://artifacts.ai-coustics.io>.
   /// @param downloadDir - Directory in which to store the model.
   /// @returns A promise for the downloaded or cached model's path.
   // napi cannot infer an `AsyncTask`'s resolved type; without the annotation the

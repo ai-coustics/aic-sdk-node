@@ -91,7 +91,7 @@ impl Analyzer {
   /// Construction allocates memory. Call {@link Analyzer#initialize} before buffering audio.
   ///
   /// @param model - Analysis model. Other model types are rejected.
-  /// @param licenseKey - SDK license key from https://developers.ai-coustics.com.
+  /// @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
   #[napi(constructor)]
   pub fn new(env: Env, model: &Model, license_key: String) -> Result<Self> {
     let model_inner = model.inner()?;

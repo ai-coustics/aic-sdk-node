@@ -55,7 +55,7 @@ impl ProcessorAsync {
   /// {@link ProcessorAsync#initialize} or {@link ProcessorAsync#withConfig} before processing audio.
   ///
   /// @param model - Enhancement or bypass model. Other model types are rejected.
-  /// @param licenseKey - SDK license key from https://developers.ai-coustics.com.
+  /// @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
   /// @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
   ///   the runtime environment.
   #[napi(constructor)]
