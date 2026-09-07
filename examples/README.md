@@ -2,14 +2,14 @@
 
 Runnable scripts for each part of the SDK.
 
-| Example                | Shows                                                     |
-| ---------------------- | --------------------------------------------------------- |
-| `enhancement.js`       | Speech enhancement, in place on the calling thread        |
-| `enhancement-async.js` | Async speech enhancement and concurrent streams           |
-| `vad.js`               | Voice activity detection and its parameters               |
-| `vad-async.js`         | Async detection, and detection combined with enhancement  |
-| `analysis.js`          | Audio quality scoring, blocking and on a worker thread    |
-| `file-processing.js`   | WAV file enhancement with delay compensation              |
+| Example                | Shows                                                    |
+| ---------------------- | -------------------------------------------------------- |
+| `enhancement.js`       | Speech enhancement, in place on the calling thread       |
+| `enhancement-async.js` | Async speech enhancement and concurrent streams          |
+| `vad.js`               | Voice activity detection and its parameters              |
+| `vad-async.js`         | Async detection, and detection combined with enhancement |
+| `analysis.js`          | Audio quality scoring, blocking and on a worker thread   |
+| `file-processing.js`   | WAV file enhancement with delay compensation             |
 
 `analysis.js` demonstrates both `analyze` and `analyzeAsync`. The file processing example
 uses synchronous processing. For parallel batch processing, run several processes.
