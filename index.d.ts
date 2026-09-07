@@ -21,6 +21,14 @@ export declare class Analyzer {
   /** Creates an analyzer from an analysis model. Other model types are rejected. */
   constructor(model: Model, licenseKey: string)
   /**
+   * Destroys the native collector and analyzer immediately, releasing their memory
+   * without waiting for garbage collection.
+   *
+   * Every later method throws; calling `dispose()` again does nothing. Blocks until an
+   * in-flight `analyzeAsync` on a worker thread finishes.
+   */
+  dispose(): void
+  /**
    * Configures the analyzer for an audio format. Must be called before buffering.
    *
    * The model's optimal sample rate and block size avoid internal resampling and
@@ -90,6 +98,15 @@ export declare class Model {
    */
   static fromFile(path: string): Model
   /**
+   * Unmaps the model file immediately, releasing its footprint without waiting for
+   * garbage collection.
+   *
+   * Objects already created from the model keep working: the SDK keeps the weights
+   * alive through internal reference counting. Every later method on this handle
+   * throws; calling `dispose()` again does nothing.
+   */
+  dispose(): void
+  /**
    * Downloads a model from the ai-coustics artifact CDN and resolves to its path.
    *
    * The manifest is re-fetched on every call so the newest compatible model version
@@ -134,6 +151,13 @@ export declare class Processor {
    * instance.
    */
   constructor(model: Model, licenseKey: string, otelConfig?: OtelConfig | undefined | null)
+  /**
+   * Destroys the native processor immediately, releasing its memory and telemetry
+   * session without waiting for garbage collection.
+   *
+   * Every later method throws; calling `dispose()` again does nothing.
+   */
+  dispose(): void
   /**
    * Configures the processor for an audio format. Must be called before processing.
    *
@@ -199,6 +223,14 @@ export declare class ProcessorAsync {
    */
   constructor(model: Model, licenseKey: string, otelConfig?: OtelConfig | undefined | null)
   /**
+   * Destroys the native processor immediately, releasing its memory and telemetry
+   * session without waiting for garbage collection.
+   *
+   * Every later method throws; calling `dispose()` again does nothing. Blocks until
+   * in-flight work on the libuv pool finishes.
+   */
+  dispose(): void
+  /**
    * Initializes the processor and resolves to a handle onto it, for chaining off the
    * constructor:
    *
@@ -253,8 +285,11 @@ export declare class ProcessorAsync {
 /**
  * Control handle for a {@link Processor}.
  *
- * Every method may be called while audio is being processed. Releasing the handle does
- * not destroy the processor it came from.
+ * Every method may be called while audio is being processed. The handle and the processor
+ * have independent lifetimes in both directions: releasing the handle does not destroy
+ * the processor it came from, and the handle stays valid after its processor is disposed
+ * or garbage-collected. Calls on it keep succeeding; they just no longer reach a live
+ * processor.
  */
 export declare class ProcessorContext {
   /** Sets an enhancement parameter. Throws if the value is out of range. */
@@ -305,6 +340,13 @@ export declare class Vad {
    * instance.
    */
   constructor(model: Model, licenseKey: string, otelConfig?: OtelConfig | undefined | null)
+  /**
+   * Destroys the native VAD immediately, releasing its memory and telemetry session
+   * without waiting for garbage collection.
+   *
+   * Every later method throws; calling `dispose()` again does nothing.
+   */
+  dispose(): void
   /**
    * Configures the VAD for an audio format. Must be called before processing.
    *
@@ -359,6 +401,14 @@ export declare class VadAsync {
    * instance.
    */
   constructor(model: Model, licenseKey: string, otelConfig?: OtelConfig | undefined | null)
+  /**
+   * Destroys the native VAD immediately, releasing its memory and telemetry session
+   * without waiting for garbage collection.
+   *
+   * Every later method throws; calling `dispose()` again does nothing. Blocks until
+   * in-flight work on the libuv pool finishes.
+   */
+  dispose(): void
   /**
    * Initializes the VAD and resolves to a handle onto it, for chaining off the
    * constructor:

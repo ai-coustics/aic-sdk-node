@@ -17,8 +17,8 @@ export interface TestModel {
  * `scripts/fetch-test-models.mjs` resolves these through `Model.download()`, which
  * re-fetches the manifest and pulls the newest compatible model version. The model file
  * format version is tied to the SDK version, so `getCompatibleModelVersion()` reports
- * the version the built addon expects, and `sdk exposes compatible model version`
- * asserts the fixtures still match it.
+ * the version the built addon expects, and the `sdk expects the model version the
+ * fixtures are published under` test asserts the fixtures still match it.
  */
 export const TEST_MODELS = {
   enhancement: { id: 'quail-vf-2.2-s-16khz' },

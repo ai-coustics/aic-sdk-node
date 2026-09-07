@@ -85,7 +85,7 @@ jobs:
           # assembles hand-written ARM asm. These images carry a complete sysroot, gcc and
           # clang, and their older glibc keeps the published binaries widely usable.
           #
-          # Both images are amd64 — the aarch64 one bundles a cross toolchain — so the
+          # Both images are amd64 (the aarch64 one bundles a cross toolchain), so the
           # host-installed node_modules stay compatible inside the container.
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -138,9 +138,9 @@ jobs:
         run: pnpm install
       # The build downloads the matching prebuilt native SDK for the target, so these steps
       # need network access.
-      # The image ships Rust 1.82, which predates edition 2024 — required by this crate and
-      # by `aic-sdk` and `aic-sdk-sys` themselves, so lowering our own edition would not
-      # help. The toolchain is updated in the container before building.
+      # The image ships Rust 1.82, which predates edition 2024. That edition is required
+      # by this crate and by `aic-sdk` and `aic-sdk-sys` themselves, so lowering our own
+      # would not help. The toolchain is updated in the container before building.
       #
       # The workspace is mounted at its own path rather than somewhere like /build, so the
       # absolute paths in pnpm's node_modules symlinks still resolve.

@@ -1,15 +1,16 @@
 use crate::{
   claim_sdk_id,
+  disposable_slot::{DisposableSlot, lock},
   error::{Result, map_err},
+  mem,
   model::Model,
   processor::{OtelConfig, audio_config},
-  processor_async::{Shared, lock},
   vad::VadContext,
 };
 
 use napi::{
   Env, Task,
-  bindgen_prelude::{AsyncTask, Float32Array},
+  bindgen_prelude::{AsyncTask, Float32Array, ObjectFinalize},
 };
 use napi_derive::napi;
 use std::sync::{Arc, Mutex};
@@ -36,9 +37,21 @@ use std::sync::{Arc, Mutex};
 /// Raise `UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel. The
 /// SDK's own `AIC_NUM_THREADS` does not apply here: that variable sizes a rayon pool this
 /// binding deliberately does not use.
-#[napi]
+#[napi(custom_finalize)]
 pub struct VadAsync {
-  inner: Shared<aic_sdk::Vad<'static>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Vad<'static>>>>,
+}
+
+impl ObjectFinalize for VadAsync {
+  fn finalize(self, env: Env) -> Result<()> {
+    // Only the last handle onto the native object destroys it; with other handles or
+    // in-flight tasks holding an `Arc`, this leaves the object (and its footprint
+    // report) for them. Idempotent against `dispose()`.
+    if Arc::strong_count(&self.slot) == 1 {
+      lock(&self.slot).release(env);
+    }
+    Ok(())
+  }
 }
 
 #[napi]
@@ -51,15 +64,38 @@ impl VadAsync {
   /// Telemetry follows the runtime environment; pass `otelConfig` to override it for this
   /// instance.
   #[napi(constructor)]
-  pub fn new(model: &Model, license_key: String, otel_config: Option<OtelConfig>) -> Result<Self> {
+  pub fn new(
+    env: Env,
+    model: &Model,
+    license_key: String,
+    otel_config: Option<OtelConfig>,
+  ) -> Result<Self> {
+    let model_inner = model.inner()?;
     claim_sdk_id();
     let inner = match otel_config {
-      Some(config) => aic_sdk::Vad::with_otel_config(&model.inner, &license_key, &config.into()),
-      None => aic_sdk::Vad::new(&model.inner, &license_key),
+      Some(config) => aic_sdk::Vad::with_otel_config(model_inner, &license_key, &config.into()),
+      None => aic_sdk::Vad::new(model_inner, &license_key),
     };
+    let inner = map_err(inner)?;
+
     Ok(Self {
-      inner: Arc::new(Mutex::new(map_err(inner)?)),
+      slot: Arc::new(Mutex::new(DisposableSlot::new(
+        env,
+        inner,
+        "VadAsync",
+        mem::PROCESSOR_BYTES,
+      ))),
     })
+  }
+
+  /// Destroys the native VAD immediately, releasing its memory and telemetry session
+  /// without waiting for garbage collection.
+  ///
+  /// Every later method throws; calling `dispose()` again does nothing. Blocks until
+  /// in-flight work on the libuv pool finishes.
+  #[napi]
+  pub fn dispose(&self, env: Env) {
+    lock(&self.slot).release(env);
   }
 
   /// Initializes the VAD and resolves to a handle onto it, for chaining off the
@@ -79,7 +115,7 @@ impl VadAsync {
     variable_block_size: Option<bool>,
   ) -> AsyncTask<VadWithConfigTask> {
     AsyncTask::new(VadWithConfigTask {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
       config: audio_config(sample_rate, block_size, variable_block_size),
     })
   }
@@ -95,7 +131,7 @@ impl VadAsync {
     variable_block_size: Option<bool>,
   ) -> AsyncTask<VadInitializeTask> {
     AsyncTask::new(VadInitializeTask {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
       config: audio_config(sample_rate, block_size, variable_block_size),
     })
   }
@@ -119,7 +155,7 @@ impl VadAsync {
   #[napi(ts_return_type = "Promise<Float32Array<ArrayBuffer>>")]
   pub fn process(&self, audio: Float32Array) -> AsyncTask<VadProcessTask> {
     AsyncTask::new(VadProcessTask {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
       // Copied on the JS thread so the worker owns its samples outright. A block is a
       // couple of kilobytes, far below the cost of running the model over it, and it
       // removes any chance of JS mutating the buffer mid-process.
@@ -136,7 +172,7 @@ impl VadAsync {
   #[napi(ts_return_type = "Promise<VadContext>")]
   pub fn get_context(&self) -> AsyncTask<VadContextTask> {
     AsyncTask::new(VadContextTask {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
     })
   }
 
@@ -146,14 +182,14 @@ impl VadAsync {
   #[napi(ts_return_type = "Promise<void>")]
   pub fn terminate_session(&self) -> AsyncTask<VadTerminateTask> {
     AsyncTask::new(VadTerminateTask {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
     })
   }
 }
 
 /// Backs {@link VadAsync#withConfig}.
 pub struct VadWithConfigTask {
-  inner: Shared<aic_sdk::Vad<'static>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Vad<'static>>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -162,19 +198,22 @@ impl Task for VadWithConfigTask {
   type JsValue = VadAsync;
 
   fn compute(&mut self) -> Result<()> {
-    map_err(lock(&self.inner).initialize(&self.config))
+    map_err(lock(&self.slot).get_mut()?.initialize(&self.config))
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<VadAsync> {
+    // A second JS handle onto the same native VAD. The footprint is reported once per
+    // object at construction, so there is nothing to report here; the last handle's
+    // finalizer gives it back. Born disposed when the VAD was disposed mid-flight.
     Ok(VadAsync {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
     })
   }
 }
 
 /// Backs {@link VadAsync#initialize}.
 pub struct VadInitializeTask {
-  inner: Shared<aic_sdk::Vad<'static>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Vad<'static>>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -183,7 +222,7 @@ impl Task for VadInitializeTask {
   type JsValue = ();
 
   fn compute(&mut self) -> Result<()> {
-    map_err(lock(&self.inner).initialize(&self.config))
+    map_err(lock(&self.slot).get_mut()?.initialize(&self.config))
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<()> {
@@ -193,7 +232,7 @@ impl Task for VadInitializeTask {
 
 /// Backs {@link VadAsync#process}.
 pub struct VadProcessTask {
-  inner: Shared<aic_sdk::Vad<'static>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Vad<'static>>>>,
   audio: Vec<f32>,
 }
 
@@ -205,7 +244,7 @@ impl Task for VadProcessTask {
     // Moved out rather than borrowed so the buffer can be handed to V8 in `resolve`
     // without another copy. The task is used once, so leaving an empty Vec behind is fine.
     let audio = std::mem::take(&mut self.audio);
-    map_err(lock(&self.inner).process(&audio))?;
+    map_err(lock(&self.slot).get_mut()?.process(&audio))?;
 
     Ok(audio)
   }
@@ -219,7 +258,7 @@ impl Task for VadProcessTask {
 
 /// Backs {@link VadAsync#getContext}.
 pub struct VadContextTask {
-  inner: Shared<aic_sdk::Vad<'static>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Vad<'static>>>>,
 }
 
 impl Task for VadContextTask {
@@ -227,7 +266,7 @@ impl Task for VadContextTask {
   type JsValue = VadContext;
 
   fn compute(&mut self) -> Result<aic_sdk::VadContext> {
-    Ok(lock(&self.inner).context())
+    Ok(lock(&self.slot).get()?.context())
   }
 
   fn resolve(&mut self, _env: Env, context: aic_sdk::VadContext) -> Result<VadContext> {
@@ -237,7 +276,7 @@ impl Task for VadContextTask {
 
 /// Backs {@link VadAsync#terminateSession}.
 pub struct VadTerminateTask {
-  inner: Shared<aic_sdk::Vad<'static>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Vad<'static>>>>,
 }
 
 impl Task for VadTerminateTask {
@@ -245,7 +284,7 @@ impl Task for VadTerminateTask {
   type JsValue = ();
 
   fn compute(&mut self) -> Result<()> {
-    map_err(lock(&self.inner).terminate_session())
+    map_err(lock(&self.slot).get_mut()?.terminate_session())
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<()> {

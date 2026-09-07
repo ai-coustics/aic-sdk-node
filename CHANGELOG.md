@@ -26,6 +26,18 @@ the binding and its type declarations are now generated from annotated Rust.
   at once.
 - `Model.download` is asynchronous and resolves to the model path, so a cold download no
   longer blocks the event loop.
+- **`dispose()` on every class holding native resources** (`Model`, `Processor`,
+  `ProcessorAsync`, `Vad`, `VadAsync`, `Analyzer`), destroying the native object
+  immediately instead of waiting for garbage collection. Every later method throws and a
+  repeat `dispose()` does nothing; where work can still be in flight (the async classes,
+  or an `Analyzer` mid-`analyzeAsync`) it blocks until that work finishes.
+  `Model.dispose()` unmaps the model file while objects created from it keep working.
+  `ProcessorContext` and `VadContext` handles stay valid after their object is disposed;
+  calls on them just no longer reach a live one.
+- **Native footprints are reported to V8's garbage collector** (`napi_adjust_external_memory`).
+  These classes hold large native allocations behind small JavaScript objects; without the
+  report the collector felt no pressure to reclaim dropped instances, so native memory
+  grew unbounded.
 
 ### Changed
 

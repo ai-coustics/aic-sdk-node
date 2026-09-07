@@ -258,6 +258,43 @@ If your license key is a JWT, refresh it in place instead of rebuilding the obje
 context.updateBearerToken(renewedJwt)
 ```
 
+## Memory management
+
+`Model`, `Processor`, `ProcessorAsync`, `Vad`, `VadAsync` and `Analyzer` hold large native
+allocations behind small JavaScript objects. The binding reports each object's native
+footprint to V8 (`napi_adjust_external_memory`), so the garbage collector applies the right
+amount of pressure and reclaims dropped instances promptly instead of letting native memory
+grow unbounded.
+
+For deterministic cleanup, every one of these classes also exposes `dispose()`, which
+destroys the native object immediately instead of waiting for garbage collection:
+
+```javascript
+const processor = new Processor(model, licenseKey)
+try {
+  processor.initialize(sampleRate, blockSize)
+  processor.process(block)
+} finally {
+  processor.dispose()
+}
+```
+
+After `dispose()`, every method on the object throws; calling `dispose()` again does
+nothing. On the async classes it blocks until in-flight work on the libuv pool finishes.
+
+Two things to know about cleanup timing:
+
+- Native cleanup runs on the event loop when the object is finalized, not synchronously at
+  garbage collection. Finalizers run on event-loop turns, so batches that create many of
+  these objects back to back hold native memory until the loop turns. An `await` on an
+  already-resolved promise (a microtask) is not enough; real async boundaries such as I/O,
+  `setTimeout` or `setImmediate` are. A tight synchronous loop that creates thousands of
+  objects accumulates their native memory for the duration of the loop; create these
+  objects per unit of work behind real async boundaries, or reuse a single instance.
+- RSS reflects the peak of simultaneously live (or not-yet-finalized) instances: the
+  allocator reuses freed native memory rather than returning it to the OS, so a burst of N
+  concurrent instances costs about N x their footprint even after they are dropped.
+
 ## Development
 
 Requires a recent Rust toolchain and Node 18+.
