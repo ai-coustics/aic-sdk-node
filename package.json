@@ -63,7 +63,7 @@
     "typecheck:test": "tsc --noEmit -p __test__/tsconfig.json",
     "typecheck:bench": "tsc --noEmit -p benchmark/tsconfig.json",
     "typecheck:examples": "tsc --noEmit -p examples/tsconfig.json",
-    "prepublishOnly": "napi prepublish -t npm",
+    "prepublishOnly": "napi prepublish -t npm --no-gh-release",
     "pretest": "node --import @oxc-node/core/register scripts/fetch-test-models.mjs",
     "test": "ava",
     "version": "napi version"
