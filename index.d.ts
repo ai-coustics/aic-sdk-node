@@ -72,7 +72,7 @@ export declare class Analyzer {
    * `dispose` wait for the analyzer lock and may block while analysis is running.
    */
   analyzeAsync(): Promise<AnalysisResult>
-  /** Clears buffered audio and internal state, keeping the configured audio settings. */
+  /** Clears buffered audio and internal state while preserving the configured audio settings. */
   reset(): void
   /**
    * Replaces the bearer token on the running analyzer.
@@ -85,7 +85,7 @@ export declare class Analyzer {
    * backoff; analysis may be rejected if no accepted token arrives in time.
    * Supply a valid token to recover the session.
    *
-   * This method allocates memory and takes a mutex. Avoid calling it from audio callbacks.
+   * This method allocates memory and takes a mutex. Avoid calling it from audio processing callbacks.
    */
   updateBearerToken(token: string): void
   /**
@@ -104,7 +104,7 @@ export declare class Analyzer {
  *
  * The same model can be used to create multiple independent instances of a compatible
  * processor, VAD or analyzer. Each instance retains a reference to the model data,
- * so the Model handle can be disposed or garbage collected first.
+ * so the `Model` handle can be disposed or garbage collected first.
  */
 export declare class Model {
   /**
@@ -215,7 +215,7 @@ export declare class Processor {
   /**
    * Creates a handle for reading and writing this processor's parameters and state.
    *
-   * Each call returns an independent handle onto the same processor.
+   * Each call returns an independent handle to the same processor.
    */
   getContext(): ProcessorContext
   /**
@@ -236,6 +236,7 @@ export declare class Processor {
  *
  * Initialization, processing and context creation run on Node's libuv thread pool and
  * return promises. Construction and disposal are synchronous.
+ *
  * Use {@link Processor} when processing should run on the calling thread.
  *
  * ### Threading
@@ -252,7 +253,7 @@ export declare class ProcessorAsync {
   /**
    * Creates a new async speech enhancement processor.
    *
-   * Construction is synchronous and throws if creation fails. Call
+   * Construction is synchronous and throws if creation fails. Await
    * {@link ProcessorAsync#initialize} or {@link ProcessorAsync#withConfig} before processing audio.
    *
    * @param model - Enhancement or bypass model. Other model types are rejected.
@@ -277,7 +278,7 @@ export declare class ProcessorAsync {
    * Uses the same configuration as {@link ProcessorAsync#initialize}. The returned handle and
    * this object share the same native instance; disposing either invalidates both.
    *
-   * ```js
+   * ```javascript
    * const processor = await new ProcessorAsync(model, licenseKey).withConfig(sampleRate, blockSize)
    * ```
    */
@@ -305,7 +306,7 @@ export declare class ProcessorAsync {
    * samples, or at most `blockSize` if `variableBlockSize` is enabled.
    * Await each call before submitting the next block.
    *
-   * ```js
+   * ```javascript
    * const enhanced = await processor.process(block)
    * ```
    */
@@ -342,10 +343,10 @@ export declare class ProcessorAsync {
 export declare class ProcessorContext {
   /** Sets an enhancement parameter. Throws if the value is out of range. */
   setParameter(parameter: ProcessorParameter, value: number): void
-  /** Reads the current value of a parameter. */
+  /** Returns the current value of an enhancement parameter. */
   getParameter(parameter: ProcessorParameter): number
   /**
-   * Total delay the processor applies to the audio, in samples at the initialized rate.
+   * Returns the audio delay in samples at the configured sample rate.
    *
    * Covers algorithmic delay plus any buffering from a non-optimal block size. Before
    * initialization it reports the base delay at the model's optimal settings.
@@ -369,7 +370,7 @@ export declare class ProcessorContext {
    * backoff; processing is eventually disabled if no accepted token arrives in time.
    * Supply a valid token to recover the session.
    *
-   * This method allocates memory and takes a mutex. Avoid calling it from audio callbacks.
+   * This method allocates memory and takes a mutex. Avoid calling it from audio processing callbacks.
    */
   updateBearerToken(token: string): void
 }
@@ -428,7 +429,7 @@ export declare class Vad {
   /**
    * Creates a handle for reading predictions and controlling this VAD.
    *
-   * Each call returns an independent handle onto the same VAD.
+   * Each call returns an independent handle to the same VAD.
    */
   getContext(): VadContext
   /**
@@ -449,7 +450,9 @@ export declare class Vad {
  *
  * Initialization, processing and context creation run on Node's libuv thread pool and
  * return promises. Construction and disposal are synchronous.
- * Read predictions through a {@link VadContext}. Feed the VAD original input audio before enhancement.
+ *
+ * Read predictions through a {@link VadContext}. Pass the original input audio to the
+ * VAD before enhancement.
  *
  * ### Threading
  *
@@ -465,7 +468,7 @@ export declare class VadAsync {
   /**
    * Creates a new async voice activity detector.
    *
-   * Construction is synchronous and throws if creation fails. Call
+   * Construction is synchronous and throws if creation fails. Await
    * {@link VadAsync#initialize} or {@link VadAsync#withConfig} before processing audio.
    *
    * @param model - Dedicated VAD model. Other model types are rejected.
@@ -490,7 +493,7 @@ export declare class VadAsync {
    * Uses the same configuration as {@link VadAsync#initialize}. The returned handle and
    * this object share the same native instance; disposing either invalidates both.
    *
-   * ```js
+   * ```javascript
    * const vad = await new VadAsync(model, licenseKey).withConfig(sampleRate, blockSize)
    * ```
    */
@@ -509,7 +512,7 @@ export declare class VadAsync {
    */
   initialize(sampleRate: number, blockSize: number, variableBlockSize?: boolean | undefined | null): Promise<void>
   /**
-   * Processes a mono audio block and updates the VAD prediction.
+   * Updates the VAD prediction and returns a promise for the original mono audio samples.
    *
    * The input is copied before work is queued and remains unmodified. The promise
    * resolves to a new `Float32Array` containing the original samples.
@@ -518,7 +521,7 @@ export declare class VadAsync {
    * samples, or at most `blockSize` if `variableBlockSize` is enabled.
    * Await each call before submitting the next block.
    *
-   * ```js
+   * ```javascript
    * const audio = await vad.process(block)
    * ```
    */
@@ -553,10 +556,10 @@ export declare class VadAsync {
 export declare class VadContext {
   /** Sets a VAD parameter. Throws if the value is out of range. */
   setParameter(parameter: VadParameter, value: number): void
-  /** Reads the current value of a VAD parameter. */
+  /** Returns the current value of a VAD parameter. */
   getParameter(parameter: VadParameter): number
   /**
-   * Whether speech is currently detected.
+   * Returns whether speech is currently detected.
    *
    * The decision lags its input by {@link VadContext#getPredictionDelay} samples, and
    * stops updating if the backing VAD stops being processed.
@@ -599,15 +602,15 @@ export declare class VadContext {
    * backoff; processing is eventually disabled if no accepted token arrives in time.
    * Supply a valid token to recover the session.
    *
-   * This method allocates memory and takes a mutex. Avoid calling it from audio callbacks.
+   * This method allocates memory and takes a mutex. Avoid calling it from audio processing callbacks.
    */
   updateBearerToken(token: string): void
 }
 
 /**
- * Overrides the telemetry wrapper id. Internal only, for ai-coustics wrappers embedding
+ * Overrides the telemetry wrapper ID. Internal only, for ai-coustics wrappers embedding
  * this package (e.g. the LiveKit plugin): call before constructing any `Processor`, `Vad`
- * or `Analyzer`, whose constructors otherwise claim the id for this SDK. The id can only
+ * or `Analyzer`, whose constructors otherwise claim the ID for this SDK. The ID can only
  * be set once per process; later writes are silently discarded.
  */
 export declare function _setSdkId(id: number): void
@@ -632,10 +635,10 @@ export interface AnalysisResult {
   interferingSpeech: number
   /** Measure of ambient or environmental noise. */
   noise: number
-  /** Artifacts from lossy speech codecs, e.g. a low bitrate or narrowband codec. */
+  /** Measure of artifacts from lossy speech codecs, such as low bitrate or narrowband codecs. */
   codecDegradation: number
   /**
-   * Dropouts and discontinuities, e.g. from packet loss, frame erasure, jitter or CPU
+   * Measure of audio dropouts and discontinuities from packet loss, frame erasure, jitter or CPU
    * overload.
    */
   packetLoss: number
@@ -660,7 +663,7 @@ export declare function getVersion(): string
 export interface OtelConfig {
   /** Whether to export telemetry. */
   enable: boolean
-  /** Session id to report. A random one is generated when omitted. */
+  /** Session ID to report. A random one is generated when omitted. */
   sessionId?: string
   /** Metric export interval in milliseconds. Omit or pass 0 for the SDK default of 60000. */
   exportIntervalMs?: number

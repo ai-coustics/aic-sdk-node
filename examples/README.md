@@ -5,11 +5,11 @@ Runnable scripts for each part of the SDK.
 | Example                | Shows                                                     |
 | ---------------------- | --------------------------------------------------------- |
 | `enhancement.js`       | Speech enhancement, in place on the calling thread        |
-| `enhancement-async.js` | The same on a worker thread, then several streams at once |
+| `enhancement-async.js` | Async speech enhancement and concurrent streams           |
 | `vad.js`               | Voice activity detection and its parameters               |
 | `vad-async.js`         | Async detection, and detection combined with enhancement  |
 | `analysis.js`          | Audio quality scoring, blocking and on a worker thread    |
-| `file-processing.js`   | A WAV file end to end, with delay compensation            |
+| `file-processing.js`   | WAV file enhancement with delay compensation              |
 
 `analysis.js` demonstrates both `analyze` and `analyzeAsync`. The file processing example
 uses synchronous processing. For parallel batch processing, run several processes.
@@ -52,7 +52,7 @@ node examples/file-processing.js --input speech.wav
 node examples/file-processing.js --input speech.wav --output enhanced.wav --enhancement 0.7
 ```
 
-`--model` tries a different model and `--help` lists every option. A model only enhances up
+`--model` selects the model and `--help` lists all options. A model only enhances up
 to its own Nyquist limit, so pair a 48 kHz source with a 48 kHz model such as `rook-l-48khz`.
 Browse the catalogue at [artifacts.ai-coustics.io](https://artifacts.ai-coustics.io).
 

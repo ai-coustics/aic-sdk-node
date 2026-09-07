@@ -19,7 +19,9 @@ use std::sync::{Arc, Mutex};
 ///
 /// Initialization, processing and context creation run on Node's libuv thread pool and
 /// return promises. Construction and disposal are synchronous.
-/// Read predictions through a {@link VadContext}. Feed the VAD original input audio before enhancement.
+///
+/// Read predictions through a {@link VadContext}. Pass the original input audio to the
+/// VAD before enhancement.
 ///
 /// ### Threading
 ///
@@ -51,7 +53,7 @@ impl ObjectFinalize for VadAsync {
 impl VadAsync {
   /// Creates a new async voice activity detector.
   ///
-  /// Construction is synchronous and throws if creation fails. Call
+  /// Construction is synchronous and throws if creation fails. Await
   /// {@link VadAsync#initialize} or {@link VadAsync#withConfig} before processing audio.
   ///
   /// @param model - Dedicated VAD model. Other model types are rejected.
@@ -100,7 +102,7 @@ impl VadAsync {
   /// Uses the same configuration as {@link VadAsync#initialize}. The returned handle and
   /// this object share the same native instance; disposing either invalidates both.
   ///
-  /// ```js
+  /// ```javascript
   /// const vad = await new VadAsync(model, licenseKey).withConfig(sampleRate, blockSize)
   /// ```
   #[napi(ts_return_type = "Promise<VadAsync>")]
@@ -139,7 +141,7 @@ impl VadAsync {
     })
   }
 
-  /// Processes a mono audio block and updates the VAD prediction.
+  /// Updates the VAD prediction and returns a promise for the original mono audio samples.
   ///
   /// The input is copied before work is queued and remains unmodified. The promise
   /// resolves to a new `Float32Array` containing the original samples.
@@ -148,7 +150,7 @@ impl VadAsync {
   /// samples, or at most `blockSize` if `variableBlockSize` is enabled.
   /// Await each call before submitting the next block.
   ///
-  /// ```js
+  /// ```javascript
   /// const audio = await vad.process(block)
   /// ```
   // See the note on {@link ProcessorAsync#process} for why the buffer type is spelled out.

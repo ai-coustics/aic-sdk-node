@@ -24,7 +24,7 @@ pub use processor_async::*;
 pub use vad::*;
 pub use vad_async::*;
 
-/// Telemetry id assigned to this binding. Must match `SdkWrapper::NodeJs` in
+/// Telemetry ID assigned to this binding. Must match `SdkWrapper::NodeJs` in
 /// `aic-sdk-telemetry`.
 const SDK_WRAPPER_ID_NODE: u32 = 4;
 
@@ -34,13 +34,13 @@ const SDK_WRAPPER_ID_NODE: u32 = 4;
 /// an SDK constructor, which would otherwise set the Rust wrapper ID (2).
 /// Delaying this until construction lets embedders call [`set_sdk_id`] after module load.
 pub(crate) fn claim_sdk_id() {
-  // SAFETY: `4` is the wrapper id assigned to this binding by ai-coustics.
+  // SAFETY: `4` is the wrapper ID assigned to this binding by ai-coustics.
   unsafe { aic_sdk::set_sdk_id(SDK_WRAPPER_ID_NODE) };
 }
 
-/// Overrides the telemetry wrapper id. Internal only, for ai-coustics wrappers embedding
+/// Overrides the telemetry wrapper ID. Internal only, for ai-coustics wrappers embedding
 /// this package (e.g. the LiveKit plugin): call before constructing any `Processor`, `Vad`
-/// or `Analyzer`, whose constructors otherwise claim the id for this SDK. The id can only
+/// or `Analyzer`, whose constructors otherwise claim the ID for this SDK. The ID can only
 /// be set once per process; later writes are silently discarded.
 #[napi(js_name = "_setSdkId")]
 pub fn set_sdk_id(id: u32) {

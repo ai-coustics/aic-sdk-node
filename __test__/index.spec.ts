@@ -44,8 +44,8 @@ test('sdk expects the model version the fixtures are published under', (t) => {
 test('model exposes its id and optimal settings', (t) => {
   const model = enhancementModel()
 
-  // The model file's own id carries the build hash and version, e.g.
-  // `quail-vf-2.2-s-16khz-gf70x7zf-v14`, so it extends the manifest id used to download it.
+  // The model file's own ID carries the build hash and version, e.g.
+  // `quail-vf-2.2-s-16khz-gf70x7zf-v14`, so it extends the manifest ID used to download it.
   t.true(
     model.getId().startsWith(TEST_MODELS.enhancement.id),
     `expected ${model.getId()} to start with ${TEST_MODELS.enhancement.id}`,

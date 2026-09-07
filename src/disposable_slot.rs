@@ -21,7 +21,7 @@ use crate::{
 ///
 /// A slot dropped without `release` having run still destroys the object, but its bytes
 /// stay reported: withdrawing them needs an `Env`, which `Drop` does not have. This
-/// happens when the last JS handle onto a shared object is finalized while a task still
+/// happens when the last JS handle to a shared object is finalized while a task still
 /// holds a clone, and leaves V8 over-reported for the rest of the process.
 pub(crate) struct DisposableSlot<T> {
   inner: Option<T>,

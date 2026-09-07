@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 ///
 /// Initialization, processing and context creation run on Node's libuv thread pool and
 /// return promises. Construction and disposal are synchronous.
+///
 /// Use {@link Processor} when processing should run on the calling thread.
 ///
 /// ### Threading
@@ -50,7 +51,7 @@ impl ObjectFinalize for ProcessorAsync {
 impl ProcessorAsync {
   /// Creates a new async speech enhancement processor.
   ///
-  /// Construction is synchronous and throws if creation fails. Call
+  /// Construction is synchronous and throws if creation fails. Await
   /// {@link ProcessorAsync#initialize} or {@link ProcessorAsync#withConfig} before processing audio.
   ///
   /// @param model - Enhancement or bypass model. Other model types are rejected.
@@ -101,7 +102,7 @@ impl ProcessorAsync {
   /// Uses the same configuration as {@link ProcessorAsync#initialize}. The returned handle and
   /// this object share the same native instance; disposing either invalidates both.
   ///
-  /// ```js
+  /// ```javascript
   /// const processor = await new ProcessorAsync(model, licenseKey).withConfig(sampleRate, blockSize)
   /// ```
   #[napi(ts_return_type = "Promise<ProcessorAsync>")]
@@ -149,7 +150,7 @@ impl ProcessorAsync {
   /// samples, or at most `blockSize` if `variableBlockSize` is enabled.
   /// Await each call before submitting the next block.
   ///
-  /// ```js
+  /// ```javascript
   /// const enhanced = await processor.process(block)
   /// ```
   // Specify ArrayBuffer so the result is assignable to a variable inferred from

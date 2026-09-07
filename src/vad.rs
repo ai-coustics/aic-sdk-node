@@ -148,7 +148,7 @@ impl Vad {
 
   /// Creates a handle for reading predictions and controlling this VAD.
   ///
-  /// Each call returns an independent handle onto the same VAD.
+  /// Each call returns an independent handle to the same VAD.
   #[napi]
   pub fn get_context(&self) -> Result<VadContext> {
     Ok(VadContext {
@@ -187,13 +187,13 @@ impl VadContext {
     map_err(self.inner.set_parameter(parameter.into(), value as f32))
   }
 
-  /// Reads the current value of a VAD parameter.
+  /// Returns the current value of a VAD parameter.
   #[napi]
   pub fn get_parameter(&self, parameter: VadParameter) -> Result<f64> {
     map_err(self.inner.parameter(parameter.into())).map(f64::from)
   }
 
-  /// Whether speech is currently detected.
+  /// Returns whether speech is currently detected.
   ///
   /// The decision lags its input by {@link VadContext#getPredictionDelay} samples, and
   /// stops updating if the backing VAD stops being processed.
@@ -244,7 +244,7 @@ impl VadContext {
   /// backoff; processing is eventually disabled if no accepted token arrives in time.
   /// Supply a valid token to recover the session.
   ///
-  /// This method allocates memory and takes a mutex. Avoid calling it from audio callbacks.
+  /// This method allocates memory and takes a mutex. Avoid calling it from audio processing callbacks.
   #[napi]
   pub fn update_bearer_token(&self, token: String) -> Result<()> {
     map_err(self.inner.update_bearer_token(&token))

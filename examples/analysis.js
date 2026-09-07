@@ -1,7 +1,7 @@
 // Audio quality analysis on the calling thread and on a libuv worker.
 //
 // `buffer` collects audio synchronously and can continue during `analyzeAsync`.
-// Analysis is computationally expensive; avoid running `analyze` in audio callbacks.
+// Analysis is computationally expensive; avoid running `analyze` in audio processing callbacks.
 
 const { Analyzer, Model, getVersion } = require('..')
 

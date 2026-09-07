@@ -31,7 +31,7 @@ pub(crate) const PROCESSOR_BYTES: i64 = 512 * KIB;
 /// models.
 ///
 /// Reported separately from [`COLLECTOR_BYTES`] because the two halves are destroyed
-/// independently: the collector can go while a worker thread still analyzes, so a single
+/// independently: the collector can be destroyed during analysis, so a single
 /// report for the pair would be released too early.
 pub(crate) const ANALYZER_BYTES: i64 = 14 * MIB;
 
@@ -40,7 +40,7 @@ pub(crate) const ANALYZER_BYTES: i64 = 14 * MIB;
 /// 5 s span, so 2 MiB leaves ~3x headroom.
 pub(crate) const COLLECTOR_BYTES: i64 = 2 * MIB;
 
-/// Fallback footprint for a `Model` when its file cannot be stat'd. The weights are
+/// Fallback footprint for a `Model` when file metadata is unavailable. The weights are
 /// memory-mapped, so the resident share approaches the file size as pages are touched.
 const MODEL_FALLBACK_BYTES: i64 = 64 * MIB;
 
@@ -57,7 +57,7 @@ pub(crate) fn adjust(env: Env, delta_bytes: i64) {
 }
 
 /// The footprint to report for a model loaded from `path`. The weights are memory-mapped,
-/// so this is the file size, or [`MODEL_FALLBACK_BYTES`] when the file cannot be stat'd.
+/// so this is the file size, or [`MODEL_FALLBACK_BYTES`] when file metadata is unavailable.
 pub(crate) fn model_bytes(path: &Path) -> i64 {
   std::fs::metadata(path)
     .map(|meta| meta.len() as i64)

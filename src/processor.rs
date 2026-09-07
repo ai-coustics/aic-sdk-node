@@ -46,7 +46,7 @@ impl From<ProcessorParameter> for aic_sdk::ProcessorParameter {
 pub struct OtelConfig {
   /// Whether to export telemetry.
   pub enable: bool,
-  /// Session id to report. A random one is generated when omitted.
+  /// Session ID to report. A random one is generated when omitted.
   pub session_id: Option<String>,
   /// Metric export interval in milliseconds. Omit or pass 0 for the SDK default of 60000.
   pub export_interval_ms: Option<u32>,
@@ -182,7 +182,7 @@ impl Processor {
 
   /// Creates a handle for reading and writing this processor's parameters and state.
   ///
-  /// Each call returns an independent handle onto the same processor.
+  /// Each call returns an independent handle to the same processor.
   #[napi]
   pub fn get_context(&self) -> Result<ProcessorContext> {
     Ok(ProcessorContext {
@@ -223,13 +223,13 @@ impl ProcessorContext {
     map_err(self.inner.set_parameter(parameter.into(), value as f32))
   }
 
-  /// Reads the current value of a parameter.
+  /// Returns the current value of an enhancement parameter.
   #[napi]
   pub fn get_parameter(&self, parameter: ProcessorParameter) -> Result<f64> {
     map_err(self.inner.parameter(parameter.into())).map(f64::from)
   }
 
-  /// Total delay the processor applies to the audio, in samples at the initialized rate.
+  /// Returns the audio delay in samples at the configured sample rate.
   ///
   /// Covers algorithmic delay plus any buffering from a non-optimal block size. Before
   /// initialization it reports the base delay at the model's optimal settings.
@@ -257,7 +257,7 @@ impl ProcessorContext {
   /// backoff; processing is eventually disabled if no accepted token arrives in time.
   /// Supply a valid token to recover the session.
   ///
-  /// This method allocates memory and takes a mutex. Avoid calling it from audio callbacks.
+  /// This method allocates memory and takes a mutex. Avoid calling it from audio processing callbacks.
   #[napi]
   pub fn update_bearer_token(&self, token: String) -> Result<()> {
     map_err(self.inner.update_bearer_token(&token))

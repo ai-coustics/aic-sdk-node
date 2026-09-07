@@ -45,7 +45,7 @@ async function main() {
   console.log('Speech hold duration:', context.getParameter(VadParameter.SpeechHoldDuration), 's')
 
   // The decision lags its input by this many samples. It is not applied to the audio, so
-  // use it to line speech decisions up with the audio timeline.
+  // use it to align speech decisions with the input audio.
   console.log('Prediction delay:', context.getPredictionDelay(), 'samples')
 
   // Process silence as sample input. Replace this with audio from your source.

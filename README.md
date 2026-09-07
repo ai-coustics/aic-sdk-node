@@ -29,7 +29,7 @@ async function main() {
   const modelPath = await Model.download('quail-vf-2.2-s-16khz', './models')
   const model = Model.fromFile(modelPath)
 
-  // The model's own settings give the lowest delay
+  // Use the model's optimal configuration for the lowest delay
   const sampleRate = model.getOptimalSampleRate()
   const blockSize = model.getOptimalBlockSize(sampleRate)
 
@@ -58,9 +58,9 @@ async, are in [`examples/`](examples).
 
 ## Models
 
-Available models and their ids are listed at
-[artifacts.ai-coustics.io](https://artifacts.ai-coustics.io). Each class accepts exactly one
-family of models and throws for the rest:
+Available models and their IDs are listed at
+[artifacts.ai-coustics.io](https://artifacts.ai-coustics.io). Each class accepts the model types
+listed below and rejects other types:
 
 | Class                         | Accepted models     |
 | ----------------------------- | ------------------- |
@@ -68,9 +68,9 @@ family of models and throws for the rest:
 | `Vad`, `VadAsync`             | dedicated VAD       |
 | `Analyzer`                    | analysis            |
 
-`Model.download` resolves to the model's path and runs off the event loop. Model files are
-memory-mapped rather than read into memory, so keep the file in place while anything created
-from it is alive.
+`Model.download` runs on Node's libuv thread pool and returns a promise for the model's path.
+`Model.fromFile` memory-maps the file. Do not modify or delete it while the model or any
+instance created from it is still alive.
 
 ## Enhancement
 
@@ -93,7 +93,7 @@ console.log(context.getAudioDelay())
 context.reset()
 ```
 
-## Off the main thread
+## Async processing
 
 `ProcessorAsync` and `VadAsync` run initialization and processing on Node's libuv thread pool.
 Await these calls to keep the event loop available for other work, such as network requests.
@@ -112,8 +112,9 @@ const audio = new Float32Array(blockSize)
 const enhanced = await processor.process(audio)
 ```
 
-The input is copied before the work is queued, so it stays valid and untouched while the
-promise is pending. `VadAsync.process` hands the block back unmodified in the same way.
+Both async classes copy the input before queuing work and return a new `Float32Array`.
+`ProcessorAsync.process` returns enhanced samples; `VadAsync.process` returns the original
+samples. The caller's input remains unmodified.
 
 Context creation is asynchronous. The returned context's methods are synchronous and can
 be used while processing runs:
@@ -194,8 +195,8 @@ context.getAudioDelay() // enhanced audio lags the input by this many samples
 vadContext.getPredictionDelay() // the VAD decision lags the same input by this many
 ```
 
-The prediction delay is not applied to the audio; use it to line speech decisions up with
-the audio timeline.
+The prediction delay is not applied to the audio. Use it to align speech decisions with
+the input audio.
 
 ## Analysis
 
@@ -247,10 +248,11 @@ const processor = new Processor(model, licenseKey, {
 })
 ```
 
-A session is closed when its object is garbage collected. Because GC timing is not
-guaranteed, every processor, VAD and analyzer also exposes `terminateSession()` for
-lifecycle events; afterwards the object can no longer process audio. On `ProcessorAsync`
-and `VadAsync` it returns a promise, since it may block.
+A telemetry session ends when its native object is destroyed. Use `terminateSession()` to
+request termination at a specific lifecycle event. Once termination is handled, processors
+and VADs can no longer process audio, and analyzers can no longer analyze buffered audio.
+On `ProcessorAsync` and `VadAsync`, termination runs on a libuv worker thread and returns
+a promise because it may block.
 
 If your license key is a JWT, refresh it in place instead of rebuilding the object:
 
@@ -265,8 +267,8 @@ allocations behind small JavaScript objects. The binding reports estimated nativ
 usage to V8 so the garbage collector can account for these allocations. This influences
 collection frequency but does not guarantee when an object will be released.
 
-For deterministic cleanup, every one of these classes also exposes `dispose()`, which
-destroys the native object immediately instead of waiting for garbage collection:
+Use `dispose()` to release native resources at a specific point instead of waiting for
+garbage collection:
 
 ```javascript
 const processor = new Processor(model, licenseKey)

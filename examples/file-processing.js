@@ -27,8 +27,8 @@ model such as rook-l-48khz. Browse models at https://artifacts.ai-coustics.io`
  * @typedef {object} Options
  * @property {string} [input] WAV file to enhance
  * @property {string} [output] Where to write the result
- * @property {string} model Model id
- * @property {number} enhancement Enhancement level, 0.0 - 1.0
+ * @property {string} model Model ID
+ * @property {number} enhancement Enhancement level, 0.0 to 1.0
  * @property {boolean} [help] Whether usage was requested
  */
 

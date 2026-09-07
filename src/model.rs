@@ -11,7 +11,7 @@ use napi_derive::napi;
 ///
 /// The same model can be used to create multiple independent instances of a compatible
 /// processor, VAD or analyzer. Each instance retains a reference to the model data,
-/// so the Model handle can be disposed or garbage collected first.
+/// so the `Model` handle can be disposed or garbage collected first.
 #[napi(custom_finalize)]
 pub struct Model {
   // The memory-mapped model owns its data and has a `'static` lifetime.

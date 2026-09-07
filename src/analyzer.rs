@@ -32,9 +32,9 @@ pub struct AnalysisResult {
   pub interfering_speech: f64,
   /// Measure of ambient or environmental noise.
   pub noise: f64,
-  /// Artifacts from lossy speech codecs, e.g. a low bitrate or narrowband codec.
+  /// Measure of artifacts from lossy speech codecs, such as low bitrate or narrowband codecs.
   pub codec_degradation: f64,
-  /// Dropouts and discontinuities, e.g. from packet loss, frame erasure, jitter or CPU
+  /// Measure of audio dropouts and discontinuities from packet loss, frame erasure, jitter or CPU
   /// overload.
   pub packet_loss: f64,
 }
@@ -183,7 +183,7 @@ impl Analyzer {
     })
   }
 
-  /// Clears buffered audio and internal state, keeping the configured audio settings.
+  /// Clears buffered audio and internal state while preserving the configured audio settings.
   #[napi]
   pub fn reset(&self) -> Result<()> {
     map_err(lock(&self.analyzer).get_mut()?.reset())
@@ -199,7 +199,7 @@ impl Analyzer {
   /// backoff; analysis may be rejected if no accepted token arrives in time.
   /// Supply a valid token to recover the session.
   ///
-  /// This method allocates memory and takes a mutex. Avoid calling it from audio callbacks.
+  /// This method allocates memory and takes a mutex. Avoid calling it from audio processing callbacks.
   #[napi]
   pub fn update_bearer_token(&self, token: String) -> Result<()> {
     map_err(lock(&self.analyzer).get_mut()?.update_bearer_token(&token))
