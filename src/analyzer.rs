@@ -1,10 +1,10 @@
 use crate::{
   claim_sdk_id,
-  error::{Result, disposed_error, map_err},
+  disposable_slot::{DisposableSlot, lock},
+  error::{Result, map_err},
   mem,
   model::Model,
   processor::audio_config,
-  processor_async::{Shared, lock},
 };
 
 use napi::{
@@ -76,20 +76,23 @@ pub struct Analyzer {
   // Only the analyzer half is shared. The collector is owned outright, so `buffer`, the
   // one call on the audio path, takes no lock and cannot contend with an analysis running
   // on a worker thread.
-  collector: Option<aic_sdk::Collector>,
-  analyzer: Shared<Option<aic_sdk::Analyzer<'static>>>,
+  collector: DisposableSlot<aic_sdk::Collector>,
+  analyzer: Arc<Mutex<DisposableSlot<aic_sdk::Analyzer<'static>>>>,
 }
 
 impl ObjectFinalize for Analyzer {
-  fn finalize(self, env: Env) -> Result<()> {
-    // `dispose()` already gave the footprint back when the collector is gone.
+  fn finalize(mut self, env: Env) -> Result<()> {
+    // Each half is released on its own, and each release is a no-op when `dispose()`
+    // got there first.
     //
     // An in-flight `AnalyzeTask` holds the analyzer `Arc`, so that half is dropped
-    // only after the worker finishes. The collector drops here, possibly while the
-    // worker analyzes. That is safe per the C API, which destroys the paired halves
-    // independently, in any order (`aic_collector_destroy`).
-    if self.collector.is_some() {
-      mem::adjust(env, -mem::ANALYZER_BYTES);
+    // only after the worker finishes, and its footprint is left for whoever holds the
+    // last handle. The collector drops here, possibly while the worker analyzes. That
+    // is safe per the C API, which destroys the paired halves independently, in any
+    // order (`aic_collector_destroy`).
+    self.collector.release(env);
+    if Arc::strong_count(&self.analyzer) == 1 {
+      lock(&self.analyzer).release(env);
     }
     Ok(())
   }
@@ -103,11 +106,15 @@ impl Analyzer {
     let model_inner = model.inner()?;
     claim_sdk_id();
     let (collector, analyzer) = map_err(aic_sdk::analyzer_pair(model_inner, &license_key))?;
-    mem::adjust(env, mem::ANALYZER_BYTES);
 
     Ok(Self {
-      collector: Some(collector),
-      analyzer: Arc::new(Mutex::new(Some(analyzer))),
+      collector: DisposableSlot::new(env, collector, "Analyzer", mem::COLLECTOR_BYTES),
+      analyzer: Arc::new(Mutex::new(DisposableSlot::new(
+        env,
+        analyzer,
+        "Analyzer",
+        mem::ANALYZER_BYTES,
+      ))),
     })
   }
 
@@ -118,16 +125,16 @@ impl Analyzer {
   /// in-flight `analyzeAsync` on a worker thread finishes.
   #[napi]
   pub fn dispose(&mut self, env: Env) {
-    if self.collector.take().is_some() {
-      // The collector drops before the analyzer lock is taken, so it can be destroyed
-      // while an `analyzeAsync` is in flight on a worker. That is safe per the C API
-      // (`aic_collector_destroy`): the paired halves are destroyed independently, in
-      // any order, and the collector handle itself is only ever used on this thread.
-      // The analyzer half is destroyed under the lock, which is what blocks until the
-      // in-flight analysis finishes.
-      lock(&self.analyzer).take(); // dropped on scope exit
-      mem::adjust(env, -mem::ANALYZER_BYTES);
-    }
+    // The collector is released before the analyzer lock is taken, so it can be
+    // destroyed while an `analyzeAsync` is in flight on a worker. That is safe per the
+    // C API (`aic_collector_destroy`): the paired halves are destroyed independently, in
+    // any order, and the collector handle itself is only ever used on this thread. The
+    // analyzer half is destroyed under the lock, which is what blocks until the
+    // in-flight analysis finishes.
+    //
+    // Both releases are idempotent, so a second `dispose()` does nothing.
+    self.collector.release(env);
+    lock(&self.analyzer).release(env);
   }
 
   /// Configures the analyzer for an audio format. Must be called before buffering.
@@ -141,31 +148,17 @@ impl Analyzer {
     block_size: u32,
     variable_block_size: Option<bool>,
   ) -> Result<()> {
-    let collector = self
-      .collector
-      .as_mut()
-      .ok_or_else(|| disposed_error("Analyzer"))?;
-    map_err(collector.initialize(&audio_config(sample_rate, block_size, variable_block_size)))
-  }
-
-  /// Runs `f` with the analyzer half, or fails with the disposed error.
-  fn with_analyzer<R>(
-    &self,
-    f: impl FnOnce(&mut aic_sdk::Analyzer<'static>) -> Result<R>,
-  ) -> Result<R> {
-    let mut guard = lock(&self.analyzer);
-    let analyzer = guard.as_mut().ok_or_else(|| disposed_error("Analyzer"))?;
-    f(analyzer)
+    map_err(self.collector.get_mut()?.initialize(&audio_config(
+      sample_rate,
+      block_size,
+      variable_block_size,
+    )))
   }
 
   /// Buffers a mono audio block for later analysis, leaving the audio unmodified.
   #[napi]
   pub fn buffer(&mut self, audio: Float32Array) -> Result<()> {
-    let collector = self
-      .collector
-      .as_mut()
-      .ok_or_else(|| disposed_error("Analyzer"))?;
-    map_err(collector.buffer(&audio))
+    map_err(self.collector.get_mut()?.buffer(&audio))
   }
 
   /// Runs the analysis model over the buffered audio, on the calling thread.
@@ -179,9 +172,7 @@ impl Analyzer {
   /// nothing else is waiting on the event loop.
   #[napi]
   pub fn analyze(&self) -> Result<AnalysisResult> {
-    self
-      .with_analyzer(|analyzer| map_err(analyzer.analyze_buffered()))
-      .map(AnalysisResult::from)
+    map_err(lock(&self.analyzer).get_mut()?.analyze_buffered()).map(AnalysisResult::from)
   }
 
   /// Runs the analysis model over the buffered audio on a worker thread.
@@ -207,7 +198,7 @@ impl Analyzer {
   /// Clears buffered audio and internal state, keeping the configured audio settings.
   #[napi]
   pub fn reset(&self) -> Result<()> {
-    self.with_analyzer(|analyzer| map_err(analyzer.reset()))
+    map_err(lock(&self.analyzer).get_mut()?.reset())
   }
 
   /// Swaps in a renewed JWT without tearing down the analyzer.
@@ -216,13 +207,13 @@ impl Analyzer {
   /// call is a no-op and the previous token stays active.
   #[napi]
   pub fn update_bearer_token(&self, token: String) -> Result<()> {
-    self.with_analyzer(|analyzer| map_err(analyzer.update_bearer_token(&token)))
+    map_err(lock(&self.analyzer).get_mut()?.update_bearer_token(&token))
   }
 
   /// Ends this analyzer's telemetry session, after which it can no longer analyze audio.
   #[napi]
   pub fn terminate_session(&self) -> Result<()> {
-    self.with_analyzer(|analyzer| map_err(analyzer.terminate_session()))
+    map_err(lock(&self.analyzer).get_mut()?.terminate_session())
   }
 }
 
@@ -231,7 +222,7 @@ impl Analyzer {
 /// Holds only the analyzer half, so the collector stays on the JS thread where `buffer` can
 /// keep reaching it while this runs.
 pub struct AnalyzeTask {
-  analyzer: Shared<Option<aic_sdk::Analyzer<'static>>>,
+  analyzer: Arc<Mutex<DisposableSlot<aic_sdk::Analyzer<'static>>>>,
 }
 
 impl Task for AnalyzeTask {
@@ -239,9 +230,7 @@ impl Task for AnalyzeTask {
   type JsValue = AnalysisResult;
 
   fn compute(&mut self) -> Result<aic_sdk::AnalysisResult> {
-    let mut guard = lock(&self.analyzer);
-    let analyzer = guard.as_mut().ok_or_else(|| disposed_error("Analyzer"))?;
-    map_err(analyzer.analyze_buffered())
+    map_err(lock(&self.analyzer).get_mut()?.analyze_buffered())
   }
 
   fn resolve(&mut self, _env: Env, result: aic_sdk::AnalysisResult) -> Result<AnalysisResult> {

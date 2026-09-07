@@ -1,5 +1,6 @@
 use crate::{
-  error::{JsAicError, Result, disposed_error, map_err},
+  disposable_slot::DisposableSlot,
+  error::{JsAicError, Result, map_err},
   mem,
 };
 
@@ -15,18 +16,16 @@ use napi_derive::napi;
 pub struct Model {
   // `from_file` memory-maps the file rather than borrowing a caller-owned buffer, so
   // the SDK model is `'static` and needs no lifetime plumbing here.
-  inner: Option<aic_sdk::Model<'static>>,
-  /// Native footprint reported to V8's GC while this instance is alive (the mmap'd
-  /// weights). Reported back on dispose or finalize so the accounting balances.
-  reported_bytes: i64,
+  //
+  // The slot's footprint is this instance's alone: the mmap'd weights. It is per-instance
+  // rather than a per-class constant, since it is the model file's size.
+  slot: DisposableSlot<aic_sdk::Model<'static>>,
 }
 
 impl ObjectFinalize for Model {
-  fn finalize(self, env: Env) -> Result<()> {
-    // `dispose()` already gave the footprint back when the inner is gone.
-    if self.inner.is_some() {
-      mem::adjust(env, -self.reported_bytes);
-    }
+  fn finalize(mut self, env: Env) -> Result<()> {
+    // A no-op when `dispose()` already gave the footprint back.
+    self.slot.release(env);
     Ok(())
   }
 }
@@ -34,7 +33,7 @@ impl ObjectFinalize for Model {
 impl Model {
   /// The inner SDK model, or the disposed error once `dispose()` ran.
   pub(crate) fn inner(&self) -> Result<&aic_sdk::Model<'static>> {
-    self.inner.as_ref().ok_or_else(|| disposed_error("Model"))
+    self.slot.get()
   }
 }
 
@@ -51,12 +50,10 @@ impl Model {
   #[napi(factory)]
   pub fn from_file(env: Env, path: String) -> Result<Self> {
     let inner = map_err(aic_sdk::Model::from_file(&path))?;
-    let reported_bytes = mem::model_bytes(std::path::Path::new(&path));
-    mem::adjust(env, reported_bytes);
+    let bytes = mem::model_bytes(std::path::Path::new(&path));
 
     Ok(Self {
-      inner: Some(inner),
-      reported_bytes,
+      slot: DisposableSlot::new(env, inner, "Model", bytes),
     })
   }
 
@@ -68,9 +65,7 @@ impl Model {
   /// throws; calling `dispose()` again does nothing.
   #[napi]
   pub fn dispose(&mut self, env: Env) {
-    if self.inner.take().is_some() {
-      mem::adjust(env, -self.reported_bytes);
-    }
+    self.slot.release(env);
   }
 
   /// Downloads a model from the ai-coustics artifact CDN and resolves to its path.

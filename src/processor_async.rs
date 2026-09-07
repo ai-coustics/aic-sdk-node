@@ -1,6 +1,6 @@
 use crate::{
   claim_sdk_id,
-  disposable_slot::DisposableSlot,
+  disposable_slot::{DisposableSlot, lock},
   error::{Result, map_err},
   mem,
   model::Model,
@@ -12,23 +12,7 @@ use napi::{
   bindgen_prelude::{AsyncTask, Float32Array, ObjectFinalize},
 };
 use napi_derive::napi;
-use std::sync::{Arc, Mutex, MutexGuard};
-
-/// The SDK object shared between a binding class and the tasks it spawns.
-///
-/// A `Mutex` rather than an async lock: `compute` runs on a libuv worker, where blocking
-/// is exactly what that thread is for.
-pub(crate) type Shared<T> = Arc<Mutex<T>>;
-
-/// Locks a shared SDK object, recovering the guard if the lock is poisoned.
-///
-/// Poisoning would mean an earlier call panicked mid-process, which the SDK does not do.
-/// Recovering keeps one hypothetical failure from turning every later call into a panic.
-pub(crate) fn lock<T>(shared: &Mutex<T>) -> MutexGuard<'_, T> {
-  shared
-    .lock()
-    .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
+use std::sync::{Arc, Mutex};
 
 /// Speech enhancement processor that keeps its work off the main thread.
 ///
@@ -51,7 +35,7 @@ pub(crate) fn lock<T>(shared: &Mutex<T>) -> MutexGuard<'_, T> {
 /// binding deliberately does not use.
 #[napi(custom_finalize)]
 pub struct ProcessorAsync {
-  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
 }
 
 impl ObjectFinalize for ProcessorAsync {
@@ -59,8 +43,8 @@ impl ObjectFinalize for ProcessorAsync {
     // Only the last handle onto the native object destroys it; with other handles or
     // in-flight tasks holding an `Arc`, this leaves the object (and its footprint
     // report) for them. Idempotent against `dispose()`.
-    if Arc::strong_count(&self.inner) == 1 {
-      self.inner.release(env, mem::PROCESSOR_BYTES);
+    if Arc::strong_count(&self.slot) == 1 {
+      lock(&self.slot).release(env);
     }
     Ok(())
   }
@@ -90,10 +74,16 @@ impl ProcessorAsync {
       }
       None => aic_sdk::Processor::new(model_inner, &license_key),
     };
-    let inner = Arc::new(DisposableSlot::new(map_err(inner)?));
-    mem::adjust(env, mem::PROCESSOR_BYTES);
+    let inner = map_err(inner)?;
 
-    Ok(Self { inner })
+    Ok(Self {
+      slot: Arc::new(Mutex::new(DisposableSlot::new(
+        env,
+        inner,
+        "ProcessorAsync",
+        mem::PROCESSOR_BYTES,
+      ))),
+    })
   }
 
   /// Destroys the native processor immediately, releasing its memory and telemetry
@@ -103,7 +93,7 @@ impl ProcessorAsync {
   /// in-flight work on the libuv pool finishes.
   #[napi]
   pub fn dispose(&self, env: Env) {
-    self.inner.release(env, mem::PROCESSOR_BYTES);
+    lock(&self.slot).release(env);
   }
 
   /// Initializes the processor and resolves to a handle onto it, for chaining off the
@@ -123,7 +113,7 @@ impl ProcessorAsync {
     variable_block_size: Option<bool>,
   ) -> AsyncTask<ProcessorWithConfigTask> {
     AsyncTask::new(ProcessorWithConfigTask {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
       config: audio_config(sample_rate, block_size, variable_block_size),
     })
   }
@@ -139,7 +129,7 @@ impl ProcessorAsync {
     variable_block_size: Option<bool>,
   ) -> AsyncTask<ProcessorInitializeTask> {
     AsyncTask::new(ProcessorInitializeTask {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
       config: audio_config(sample_rate, block_size, variable_block_size),
     })
   }
@@ -165,7 +155,7 @@ impl ProcessorAsync {
   #[napi(ts_return_type = "Promise<Float32Array<ArrayBuffer>>")]
   pub fn process(&self, audio: Float32Array) -> AsyncTask<ProcessorProcessTask> {
     AsyncTask::new(ProcessorProcessTask {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
       // Copied on the JS thread so the worker owns its samples outright. A block is a
       // couple of kilobytes, far below the cost of running the model over it, and it
       // removes any chance of JS mutating the buffer mid-process.
@@ -182,7 +172,7 @@ impl ProcessorAsync {
   #[napi(ts_return_type = "Promise<ProcessorContext>")]
   pub fn get_context(&self) -> AsyncTask<ProcessorContextTask> {
     AsyncTask::new(ProcessorContextTask {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
     })
   }
 
@@ -192,14 +182,14 @@ impl ProcessorAsync {
   #[napi(ts_return_type = "Promise<void>")]
   pub fn terminate_session(&self) -> AsyncTask<ProcessorTerminateTask> {
     AsyncTask::new(ProcessorTerminateTask {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
     })
   }
 }
 
 /// Backs {@link ProcessorAsync#withConfig}.
 pub struct ProcessorWithConfigTask {
-  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -208,9 +198,7 @@ impl Task for ProcessorWithConfigTask {
   type JsValue = ProcessorAsync;
 
   fn compute(&mut self) -> Result<()> {
-    self.inner.with("ProcessorAsync", |inner| {
-      map_err(inner.initialize(&self.config))
-    })
+    map_err(lock(&self.slot).get_mut()?.initialize(&self.config))
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<ProcessorAsync> {
@@ -218,14 +206,14 @@ impl Task for ProcessorWithConfigTask {
     // per object at construction, so there is nothing to report here; the last handle's
     // finalizer gives it back. Born disposed when the processor was disposed mid-flight.
     Ok(ProcessorAsync {
-      inner: self.inner.clone(),
+      slot: self.slot.clone(),
     })
   }
 }
 
 /// Backs {@link ProcessorAsync#initialize}.
 pub struct ProcessorInitializeTask {
-  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
   config: aic_sdk::ProcessorConfig,
 }
 
@@ -234,9 +222,7 @@ impl Task for ProcessorInitializeTask {
   type JsValue = ();
 
   fn compute(&mut self) -> Result<()> {
-    self.inner.with("ProcessorAsync", |inner| {
-      map_err(inner.initialize(&self.config))
-    })
+    map_err(lock(&self.slot).get_mut()?.initialize(&self.config))
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<()> {
@@ -246,7 +232,7 @@ impl Task for ProcessorInitializeTask {
 
 /// Backs {@link ProcessorAsync#process}.
 pub struct ProcessorProcessTask {
-  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
   audio: Vec<f32>,
 }
 
@@ -258,9 +244,7 @@ impl Task for ProcessorProcessTask {
     // Moved out rather than borrowed so the buffer can be handed to V8 in `resolve`
     // without another copy. The task is used once, so leaving an empty Vec behind is fine.
     let mut audio = std::mem::take(&mut self.audio);
-    self
-      .inner
-      .with("ProcessorAsync", |inner| map_err(inner.process(&mut audio)))?;
+    map_err(lock(&self.slot).get_mut()?.process(&mut audio))?;
 
     Ok(audio)
   }
@@ -274,7 +258,7 @@ impl Task for ProcessorProcessTask {
 
 /// Backs {@link ProcessorAsync#getContext}.
 pub struct ProcessorContextTask {
-  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
 }
 
 impl Task for ProcessorContextTask {
@@ -282,9 +266,7 @@ impl Task for ProcessorContextTask {
   type JsValue = ProcessorContext;
 
   fn compute(&mut self) -> Result<aic_sdk::ProcessorContext> {
-    self
-      .inner
-      .with("ProcessorAsync", |inner| Ok(inner.context()))
+    Ok(lock(&self.slot).get()?.context())
   }
 
   fn resolve(&mut self, _env: Env, context: aic_sdk::ProcessorContext) -> Result<ProcessorContext> {
@@ -294,7 +276,7 @@ impl Task for ProcessorContextTask {
 
 /// Backs {@link ProcessorAsync#terminateSession}.
 pub struct ProcessorTerminateTask {
-  inner: Arc<DisposableSlot<aic_sdk::Processor<'static>>>,
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
 }
 
 impl Task for ProcessorTerminateTask {
@@ -302,9 +284,7 @@ impl Task for ProcessorTerminateTask {
   type JsValue = ();
 
   fn compute(&mut self) -> Result<()> {
-    self
-      .inner
-      .with("ProcessorAsync", |inner| map_err(inner.terminate_session()))
+    map_err(lock(&self.slot).get_mut()?.terminate_session())
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<()> {

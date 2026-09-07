@@ -1,6 +1,7 @@
 use crate::{
   claim_sdk_id,
-  error::{Result, disposed_error, map_err},
+  disposable_slot::DisposableSlot,
+  error::{Result, map_err},
   mem,
   model::Model,
 };
@@ -81,34 +82,16 @@ pub(crate) fn audio_config(
 /// Create several processors to handle multiple streams or to switch models at runtime.
 #[napi(custom_finalize)]
 pub struct Processor {
-  inner: Option<aic_sdk::Processor<'static>>,
+  // Owned outright, with no lock: every method here runs on the JS thread. The async
+  // class shares the same slot with its tasks instead.
+  slot: DisposableSlot<aic_sdk::Processor<'static>>,
 }
 
 impl ObjectFinalize for Processor {
-  fn finalize(self, env: Env) -> Result<()> {
-    // `dispose()` already gave the footprint back when the inner is gone.
-    if self.inner.is_some() {
-      mem::adjust(env, -mem::PROCESSOR_BYTES);
-    }
+  fn finalize(mut self, env: Env) -> Result<()> {
+    // A no-op when `dispose()` already gave the footprint back.
+    self.slot.release(env);
     Ok(())
-  }
-}
-
-impl Processor {
-  /// The inner SDK processor, or the disposed error once `dispose()` ran.
-  fn inner(&self) -> Result<&aic_sdk::Processor<'static>> {
-    self
-      .inner
-      .as_ref()
-      .ok_or_else(|| disposed_error("Processor"))
-  }
-
-  /// The same, for a `&mut` call.
-  fn inner_mut(&mut self) -> Result<&mut aic_sdk::Processor<'static>> {
-    self
-      .inner
-      .as_mut()
-      .ok_or_else(|| disposed_error("Processor"))
   }
 }
 
@@ -134,9 +117,10 @@ impl Processor {
       None => aic_sdk::Processor::new(model_inner, &license_key),
     };
     let inner = map_err(inner)?;
-    mem::adjust(env, mem::PROCESSOR_BYTES);
 
-    Ok(Self { inner: Some(inner) })
+    Ok(Self {
+      slot: DisposableSlot::new(env, inner, "Processor", mem::PROCESSOR_BYTES),
+    })
   }
 
   /// Destroys the native processor immediately, releasing its memory and telemetry
@@ -145,9 +129,7 @@ impl Processor {
   /// Every later method throws; calling `dispose()` again does nothing.
   #[napi]
   pub fn dispose(&mut self, env: Env) {
-    if self.inner.take().is_some() {
-      mem::adjust(env, -mem::PROCESSOR_BYTES);
-    }
+    self.slot.release(env);
   }
 
   /// Configures the processor for an audio format. Must be called before processing.
@@ -164,7 +146,7 @@ impl Processor {
     block_size: u32,
     variable_block_size: Option<bool>,
   ) -> Result<()> {
-    map_err(self.inner_mut()?.initialize(&audio_config(
+    map_err(self.slot.get_mut()?.initialize(&audio_config(
       sample_rate,
       block_size,
       variable_block_size,
@@ -187,7 +169,7 @@ impl Processor {
     // break that assumption, which is inherent to processing JS-owned buffers in place.
     let samples = unsafe { audio.as_mut() };
 
-    map_err(self.inner_mut()?.process(samples))
+    map_err(self.slot.get_mut()?.process(samples))
   }
 
   /// Creates a handle for reading and writing this processor's parameters and state.
@@ -196,7 +178,7 @@ impl Processor {
   #[napi]
   pub fn get_context(&self) -> Result<ProcessorContext> {
     Ok(ProcessorContext {
-      inner: self.inner()?.context(),
+      inner: self.slot.get()?.context(),
     })
   }
 
@@ -206,7 +188,7 @@ impl Processor {
   /// is collected, but GC timing is not guaranteed. May block, so keep it off the audio path.
   #[napi]
   pub fn terminate_session(&mut self) -> Result<()> {
-    map_err(self.inner_mut()?.terminate_session())
+    map_err(self.slot.get_mut()?.terminate_session())
   }
 }
 

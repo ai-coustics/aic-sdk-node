@@ -7,10 +7,10 @@
 //! processors per unit of work ratchets RSS up until the process is OOM-killed.
 //!
 //! `Env::adjust_external_memory` (`napi_adjust_external_memory`) is the Node-API mechanism
-//! for reporting that hidden cost. Each constructor reports its object's footprint, and the
-//! negation is reported when the instance goes away: by `dispose()`, by
-//! [`DisposableSlot::release`](crate::disposable_slot::DisposableSlot::release), or by the
-//! class finalizer. Either way the ledger balances.
+//! for reporting that hidden cost. Both halves of the ledger live in
+//! [`DisposableSlot`](crate::disposable_slot::DisposableSlot): it reports its object's
+//! footprint when constructed and reports the negation when released, by `dispose()` or by
+//! the class finalizer, whichever gets there first. Either way the ledger balances.
 //!
 //! Footprints are per-class constants because the SDK exposes no per-instance memory
 //! query. They are estimates keyed to measurement and deliberately err high: over-reporting
@@ -36,10 +36,19 @@ const KIB: i64 = 1024;
 /// within ~3x of the smallest.
 pub(crate) const PROCESSOR_BYTES: i64 = 512 * KIB;
 
-/// An `Analyzer` (collector + analyzer pair). Measured ~8.2 MiB for `tyto-1.1-l` at
-/// construction and ~8.9 MiB with the collector initialized and holding 5 s of audio.
-/// 16 MiB gives ~2x headroom for larger analysis models.
-pub(crate) const ANALYZER_BYTES: i64 = 16 * MIB;
+/// The analyzer half of an `Analyzer`, which holds the model workspace. Measured ~8.2 MiB
+/// for `tyto-1.1-l` at construction, so 14 MiB leaves ~1.7x headroom for larger analysis
+/// models.
+///
+/// Reported separately from [`COLLECTOR_BYTES`] because the two halves are destroyed
+/// independently: the collector can go while a worker thread still analyzes, so a single
+/// report for the pair would be given back too early.
+pub(crate) const ANALYZER_BYTES: i64 = 14 * MIB;
+
+/// The collector half of an `Analyzer`, which holds the buffered audio. Measured as the
+/// ~0.7 MiB that `tyto-1.1-l` grows by once the collector is initialized and holding its
+/// 5 s span, so 2 MiB leaves ~3x headroom.
+pub(crate) const COLLECTOR_BYTES: i64 = 2 * MIB;
 
 /// Fallback footprint for a `Model` when its file cannot be stat'd. Deliberately
 /// conservative: the loaded model is memory-mapped, so its resident share approaches the

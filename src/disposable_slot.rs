@@ -1,69 +1,88 @@
-//! One native SDK object shared by several JS handles, destroyed exactly once.
+//! One native SDK object, destroyed exactly once, with its footprint reported to V8 for
+//! as long as it lives.
 //!
-//! `ProcessorAsync` and `VadAsync` are the only classes that need this: `withConfig` hands
-//! out a second JS handle onto the same native object, and each in-flight task on the
-//! libuv pool holds an `Arc` clone. Whichever owner gets there first destroys the object
-//! and gives its footprint back to V8; the rest find it already gone. The sync classes own
-//! their object outright and use a plain `Option` field instead.
+//! Every binding class holds its SDK object in a slot, so the disposed error and the
+//! footprint accounting are written once here rather than per class. The slot itself is
+//! a plain owner with no interior mutability; the classes that share their object with
+//! tasks on the libuv pool wrap it in an `Arc<Mutex<_>>` and reach it through [`lock`].
 
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use napi::Env;
 
 use crate::{
   error::{Result, disposed_error},
   mem::adjust,
-  processor_async::lock,
 };
 
-/// A slot holding a native SDK object with several owners, emptied by whichever one gets
-/// there first. Every later access finds it empty and fails with the disposed error.
+/// A slot holding a native SDK object until it is disposed, after which every access
+/// fails with the disposed error.
 ///
-/// Its footprint is reported to V8 once per object, at construction, and given back
-/// exactly once: by `dispose()`, or by the finalizer of the last surviving handle.
-/// `Option::take` makes the give-back idempotent, so the two never double-count.
+/// The slot owns both halves of the object's footprint report: [`new`](Self::new) reports
+/// it to V8 and [`release`](Self::release) gives it back. `Option::take` makes the
+/// give-back idempotent, so `dispose()` and a class finalizer cannot double-count it.
+///
+/// A slot dropped without `release` having run still destroys the object, but those
+/// bytes stay reported: giving them back takes an `Env`, which a `Drop` impl does not
+/// have. That happens when the last JS handle onto a shared object is finalized while a
+/// task still holds a clone; over-reporting only makes V8 a little more eager for the
+/// rest of the process.
 pub(crate) struct DisposableSlot<T> {
-  inner: Mutex<Option<T>>,
+  inner: Option<T>,
+  /// The JS class name, for the disposed error message.
+  class: &'static str,
+  /// The footprint reported to V8 while `inner` is live.
+  bytes: i64,
 }
 
 impl<T> DisposableSlot<T> {
-  pub(crate) fn new(inner: T) -> Self {
+  /// Takes ownership of `inner` and reports its `bytes` of native footprint to V8.
+  pub(crate) fn new(env: Env, inner: T, class: &'static str, bytes: i64) -> Self {
+    adjust(env, bytes);
+
     Self {
-      inner: Mutex::new(Some(inner)),
+      inner: Some(inner),
+      class,
+      bytes,
     }
+  }
+
+  /// The native object, or the disposed error once it is gone.
+  pub(crate) fn get(&self) -> Result<&T> {
+    self
+      .inner
+      .as_ref()
+      .ok_or_else(|| disposed_error(self.class))
+  }
+
+  /// The same, for a `&mut` call.
+  pub(crate) fn get_mut(&mut self) -> Result<&mut T> {
+    self
+      .inner
+      .as_mut()
+      .ok_or_else(|| disposed_error(self.class))
   }
 
   /// Destroys the native object, if it is still live, and gives its footprint back to
   /// V8. Idempotent.
   ///
-  /// Called by `dispose()`, which destroys the object regardless of other handles, and
-  /// by the finalizer of the last surviving handle.
-  pub(crate) fn release(&self, env: Env, bytes: i64) {
-    if lock(&self.inner).take().is_some() {
-      adjust(env, -bytes);
+  /// Called by `dispose()` and by the class finalizer, in whichever order they happen.
+  pub(crate) fn release(&mut self, env: Env) {
+    if self.inner.take().is_some() {
+      adjust(env, -self.bytes);
     }
-  }
-
-  /// Runs `f` with the native object, or fails with the disposed error.
-  pub(crate) fn with<R>(&self, class: &str, f: impl FnOnce(&mut T) -> Result<R>) -> Result<R> {
-    let mut guard = lock(&self.inner);
-    let inner = guard.as_mut().ok_or_else(|| disposed_error(class))?;
-    f(inner)
   }
 }
 
-impl<T> Drop for DisposableSlot<T> {
-  fn drop(&mut self) {
-    // Frees the native object when the last `Arc` goes away without `release` having
-    // run, e.g. the last JS handle was finalized while a task still held a clone (that
-    // finalizer saw the extra reference and left the object for the task). The footprint
-    // report cannot be returned here, since that takes the finalizer's `Env`, so those
-    // bytes stay reported, which only makes V8 a little more eager for the rest of the
-    // process.
-    match self.inner.get_mut() {
-      Ok(slot) => slot.take(),
-      // Dropping cannot fail on a poisoned lock: the guard's contents are still ours.
-      Err(poisoned) => poisoned.into_inner().take(),
-    };
-  }
+/// Locks a shared slot, recovering the guard if the lock is poisoned.
+///
+/// A `Mutex` rather than an async lock: `compute` runs on a libuv worker, where blocking
+/// is exactly what that thread is for.
+///
+/// Poisoning would mean an earlier call panicked while holding the guard, which the SDK
+/// does not do. Recovering keeps one hypothetical failure from turning every later call
+/// into a panic, disposal included: a panic would happen inside an SDK call, leaving the
+/// slot's own `Option` intact.
+pub(crate) fn lock<T>(slot: &Mutex<T>) -> MutexGuard<'_, T> {
+  slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
