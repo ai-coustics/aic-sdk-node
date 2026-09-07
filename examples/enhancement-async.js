@@ -1,13 +1,8 @@
-// Speech enhancement off the main thread.
+// Speech enhancement on Node's libuv thread pool.
 //
-// `ProcessorAsync` does the same work as `Processor`, but on a worker thread, so the event
-// loop stays free. Two differences to watch for:
-//
-//   * `process` does not write into the caller's array. It copies the input, so the array
-//     stays valid while the promise is pending, and resolves to the enhanced samples.
-//   * `getContext()` is awaited, but the handle it resolves to is fully synchronous.
-//
-// It ends by running several streams at once, the main reason to use the async API.
+// `process` copies its input and returns a promise for the enhanced samples.
+// `getContext` returns a promise; the context's methods are synchronous.
+// The final example processes several independent streams concurrently.
 
 const os = require('node:os')
 
@@ -37,26 +32,24 @@ async function main() {
   const blockSize = model.getOptimalBlockSize(sampleRate)
   console.log(`Audio format: ${blockSize} samples @ ${sampleRate} Hz`)
 
-  // `withConfig` initializes and resolves to a handle, so construction and setup chain into
-  // one await. `new ProcessorAsync(...)` plus `await processor.initialize(...)` is equivalent.
+  // Create and initialize the processor. Calling `initialize` on a constructed
+  // instance is equivalent.
   const processor = await new ProcessorAsync(model, licenseKey).withConfig(sampleRate, blockSize)
 
   const context = await processor.getContext()
   console.log('Audio delay:', context.getAudioDelay(), 'samples')
 
-  // Synchronous even on the async class, so parameters can be changed from anywhere,
-  // including from inside an audio callback.
+  // Context methods are synchronous and can be used during processing.
   context.setParameter(ProcessorParameter.EnhancementLevel, 0.7)
   console.log('Enhancement level:', context.getParameter(ProcessorParameter.EnhancementLevel))
 
-  // A timer to prove the event loop is not blocked while the model runs.
+  // Count event-loop timer callbacks during processing.
   let ticks = 0
   const ticker = setInterval(() => {
     ticks += 1
   }, 1)
 
-  // The steady-state streaming loop. `process` resolves to a new array, so the block is
-  // reassigned instead of mutated, and one variable can carry the stream.
+  // Await each block in sequence. The result is a new array; the input is unmodified.
   let audio = Float32Array.from({ length: blockSize }, () => (Math.random() - 0.5) * 0.2)
   console.log('Before:', audio.slice(0, 4))
 
@@ -73,15 +66,11 @@ async function main() {
   const audioMs = (BLOCKS * blockSize * 1000) / sampleRate
   console.log(`\nProcessed ${BLOCKS} blocks (${audioMs.toFixed(0)} ms of audio) in ${elapsed.toFixed(0)} ms`)
   console.log(`Real-time factor: ${(audioMs / elapsed).toFixed(1)}x`)
-  // Zero here would mean the work had blocked the event loop.
+  // Report how many timer callbacks ran during processing.
   console.log(`Timer fired ${ticks} times while processing, so the event loop stayed responsive`)
 
-  // Several streams at once.
-  //
-  // One instance handles one stream, and calls on it must not overlap: worker threads
-  // finish out of order, so a second `process` before the first resolves would desync the
-  // stream. Concurrency comes from running several instances side by side, one per stream,
-  // as a server would do per connection.
+  // Process independent streams concurrently, with one processor per stream.
+  // Await calls within each stream to preserve block order.
   console.log(`\nEnhancing ${STREAMS} streams concurrently`)
 
   const processors = await Promise.all(
@@ -100,8 +89,7 @@ async function main() {
   )
   const concurrentElapsed = performance.now() - concurrentStart
 
-  // Bounded by the libuv pool, four threads unless UV_THREADPOOL_SIZE says otherwise, so
-  // raising it lets more streams overlap.
+  // Concurrency is limited by the libuv pool size, configured with UV_THREADPOOL_SIZE.
   console.log(`${STREAMS} x ${BLOCKS} blocks in ${concurrentElapsed.toFixed(0)} ms`)
   console.log(`Aggregate: ${((STREAMS * audioMs) / concurrentElapsed).toFixed(1)}x real time`)
   console.log(`libuv pool: ${process.env.UV_THREADPOOL_SIZE ?? '4 (default)'}, ${os.cpus().length} logical CPUs`)

@@ -1,8 +1,7 @@
-// Voice activity detection off the main thread.
+// Voice activity detection on Node's libuv thread pool.
 //
-// `VadAsync` mirrors `Vad` on a worker thread. `process` copies the block in and hands it
-// straight back, so the same block can go to the VAD and then on to a processor, as in the
-// combined pattern at the end of this file.
+// `process` returns a promise for a copy of the original samples. The final example
+// passes this audio to an enhancement processor after detection.
 
 const { Model, ProcessorAsync, VadAsync, VadParameter, getVersion } = require('..')
 
@@ -29,8 +28,7 @@ async function main() {
 
   const vad = await new VadAsync(model, licenseKey).withConfig(sampleRate, blockSize)
 
-  // Awaited once; every method on the handle itself is synchronous, so predictions can be
-  // read from anywhere, including from inside an audio callback.
+  // Await context creation. Prediction and parameter methods are synchronous.
   const context = await vad.getContext()
 
   context.setParameter(VadParameter.Sensitivity, 0.8)
@@ -40,7 +38,7 @@ async function main() {
   console.log('Sensitivity:', context.getParameter(VadParameter.Sensitivity))
   console.log('Prediction delay:', context.getPredictionDelay(), 'samples')
 
-  // Silence, so nothing should be reported. Feed real speech to see this flip.
+  // Process silence as sample input. Replace this with audio from your source.
   let audio = new Float32Array(blockSize)
   for (let block = 0; block < 10; block += 1) {
     // Resolves to the same samples, unmodified, so one variable carries the stream.
@@ -50,26 +48,19 @@ async function main() {
   console.log('\nSpeech detected:', context.isSpeechDetected())
   console.log('Raw probability:', context.getRawVadProbability().toFixed(4))
 
-  // Detection and enhancement together.
-  //
-  // The VAD must see the *original* audio, not the processor's output: enhancement is
-  // designed to change the signal, so detecting on its output runs the VAD model on audio
-  // it was not trained for, and stacks the processor's delay onto the prediction. The VAD
-  // hands its block back untouched, so ordering the two calls is enough.
+  // Run detection before enhancement so the VAD receives the original input.
+  // Enhanced audio changes the signal seen by the VAD and adds processing delay.
   console.log('\nRunning detection and enhancement on the same stream')
 
   const enhancementModel = Model.fromFile(await Model.download(ENHANCEMENT_MODEL_ID, MODEL_DIR))
 
-  // Initialized with the *VAD's* block size, not the enhancement model's own optimum, so
-  // that one block can be handed to both. Two models need not agree on an optimal block
-  // size, and feeding a processor a block it was not configured for is an error, so when
-  // sharing a stream, pick one size and configure everything with it.
+  // Configure both instances with the same block size to share input blocks.
+  // Models may have different optimal block sizes.
   const processor = await new ProcessorAsync(enhancementModel, licenseKey).withConfig(sampleRate, blockSize)
   const processorContext = await processor.getContext()
 
   for (let i = 0; i < 10; i += 1) {
-    // In a real stream this block comes from the source. What matters is that it is never
-    // the previous iteration's output: enhanced audio must not come back round into the VAD.
+    // Read a new input block for each iteration; do not reuse enhanced output as VAD input.
     const block = Float32Array.from({ length: blockSize }, () => (Math.random() - 0.5) * 0.2)
 
     // The VAD sees the input, then the processor enhances it.
@@ -79,8 +70,7 @@ async function main() {
     console.log(`Block ${i}: speech ${context.isSpeechDetected()}, ${enhanced.length} samples out`)
   }
 
-  // The two delays describe different things and are independent: one shifts the audio,
-  // the other tells you how far behind the decision is.
+  // Audio delay and VAD prediction delay are independent measurements in samples.
   console.log('Audio delay:', processorContext.getAudioDelay(), 'samples')
   console.log('Prediction delay:', context.getPredictionDelay(), 'samples')
 

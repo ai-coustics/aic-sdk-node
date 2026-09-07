@@ -15,27 +15,23 @@ use napi::{
 use napi_derive::napi;
 use std::sync::{Arc, Mutex};
 
-/// Voice activity detector that keeps its work off the main thread.
+/// Voice activity detection for use in async applications.
 ///
-/// The same detection as {@link Vad}, but each call returns a promise and runs on Node's
-/// libuv thread pool, so the event loop stays responsive. Predictions are read through a
-/// {@link VadContext}, whose methods are all synchronous.
+/// Initialization, processing and context creation run on Node's libuv thread pool and
+/// return promises. Construction and disposal are synchronous.
 ///
-/// Mirrors `VadAsync` in the Rust SDK.
+/// Read predictions through a {@link VadContext}. Pass the original input audio to the
+/// VAD before enhancement.
 ///
-/// As with {@link Vad}, feed this the **original** audio when enhancement and detection
-/// run together, not a processor's output.
+/// ### Threading
 ///
-/// ### Concurrency
+/// Use one instance per stream and await each operation before submitting the next.
+/// Concurrent calls on one instance are not guaranteed to execute in submission order.
+/// Use separate instances to process multiple streams concurrently.
 ///
-/// One instance handles one stream. Do not start a second {@link VadAsync#process} before
-/// the first resolves: libuv completes work items out of order, which would desync the
-/// stream and scramble the prediction. To watch several streams at once, create several
-/// instances.
-///
-/// The libuv pool is four threads by default and is shared with `fs`, `dns` and `crypto`.
-/// Raise `UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel.
-/// `AIC_NUM_THREADS` has no effect: it sizes a rayon pool this binding does not use.
+/// The libuv pool defaults to four threads and is shared with filesystem, DNS and crypto
+/// work. Set `UV_THREADPOOL_SIZE` before starting Node to change its size.
+/// `AIC_NUM_THREADS` does not apply to these bindings.
 #[napi(custom_finalize)]
 pub struct VadAsync {
   slot: Arc<Mutex<DisposableSlot<aic_sdk::Vad<'static>>>>,
@@ -43,9 +39,9 @@ pub struct VadAsync {
 
 impl ObjectFinalize for VadAsync {
   fn finalize(self, env: Env) -> Result<()> {
-    // Only the last handle destroys the native object; while other handles or in-flight
-    // tasks hold an `Arc`, this leaves the object and its footprint report to them.
-    // A no-op if `dispose()` already ran.
+    // Release the object and V8 memory estimate only for the last shared handle.
+    // A pending task can retain the slot beyond finalization; see `DisposableSlot`.
+    // `release` has no effect if the object was already disposed.
     if Arc::strong_count(&self.slot) == 1 {
       lock(&self.slot).release(env);
     }
@@ -55,13 +51,15 @@ impl ObjectFinalize for VadAsync {
 
 #[napi]
 impl VadAsync {
-  /// Creates a voice activity detector from a dedicated VAD model.
+  /// Creates a new async voice activity detector.
   ///
-  /// Construction is synchronous and throws on failure, as in the Rust SDK; only the
-  /// audio work runs on a worker thread.
+  /// Construction is synchronous and throws if creation fails. Await
+  /// {@link VadAsync#initialize} or {@link VadAsync#withConfig} before processing audio.
   ///
-  /// Telemetry follows the runtime environment; pass `otelConfig` to override it for this
-  /// instance.
+  /// @param model - Dedicated VAD model. Other model types are rejected.
+  /// @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
+  /// @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
+  ///   the runtime environment.
   #[napi(constructor)]
   pub fn new(
     env: Env,
@@ -87,26 +85,26 @@ impl VadAsync {
     })
   }
 
-  /// Destroys the native VAD immediately, releasing its memory and telemetry session
-  /// without waiting for garbage collection.
+  /// Destroys the native VAD and releases its telemetry session.
   ///
-  /// Every later method throws; calling `dispose()` again does nothing. Blocks until
-  /// in-flight work on the libuv pool finishes.
+  /// Use this for cleanup at a specific point instead of waiting for garbage collection.
+  /// After disposal, all methods except `dispose()` fail. Repeated disposal has no effect.
+  ///
+  /// This call blocks the calling thread while a worker holds the instance lock.
+  /// Queued work that acquires the lock after disposal rejects its promise.
   #[napi]
   pub fn dispose(&self, env: Env) {
     lock(&self.slot).release(env);
   }
 
-  /// Initializes the VAD and resolves to a handle onto it, for chaining off the
-  /// constructor:
+  /// Initializes the VAD and returns a promise for a handle to the initialized instance.
   ///
-  /// ```js
-  /// const vad = await new VadAsync(model, licenseKey).withConfig(16000, 160)
+  /// Uses the same configuration as {@link VadAsync#initialize}. The returned handle and
+  /// this object share the same native instance; disposing either invalidates both.
+  ///
+  /// ```javascript
+  /// const vad = await new VadAsync(model, licenseKey).withConfig(sampleRate, blockSize)
   /// ```
-  ///
-  /// The handle it resolves to drives the same underlying VAD as the receiver, so either
-  /// one can be used afterwards. The Rust SDK returns `self` here, which a promise cannot
-  /// express.
   #[napi(ts_return_type = "Promise<VadAsync>")]
   pub fn with_config(
     &self,
@@ -120,9 +118,16 @@ impl VadAsync {
     })
   }
 
-  /// Configures the VAD for an audio format. Must be called before processing.
+  /// Configures the VAD for the given audio format.
   ///
-  /// See {@link Vad#initialize}. Allocates, so it runs on a worker.
+  /// Await this method before processing audio. Use {@link Model#getOptimalSampleRate} and
+  /// {@link Model#getOptimalBlockSize} for the most frequent prediction updates.
+  /// Initialization allocates memory and runs on a libuv worker thread.
+  ///
+  /// @param sampleRate - Audio sample rate in Hz.
+  /// @param blockSize - Number of mono samples per block.
+  /// @param variableBlockSize - Allow blocks shorter than `blockSize`. Defaults to `false`.
+  ///   Variable block sizes can add buffering latency. Larger blocks are always rejected.
   #[napi(ts_return_type = "Promise<void>")]
   pub fn initialize(
     &self,
@@ -136,39 +141,33 @@ impl VadAsync {
     })
   }
 
-  /// Examines a mono audio block, updates the prediction, and resolves to the same
-  /// samples unmodified.
+  /// Updates the VAD prediction and returns a promise for the original mono audio samples.
   ///
-  /// The samples are copied out before the work is queued, so the caller's array stays
-  /// valid and untouched while the promise is pending. The block is handed back, instead
-  /// of the promise resolving to nothing, to match the Rust SDK and to keep a streaming
-  /// loop reading the same either side of the boundary:
+  /// The input is copied before work is queued and remains unmodified. The promise
+  /// resolves to a new `Float32Array` containing the original samples.
   ///
-  /// ```js
-  /// let audio = new Float32Array(blockSize)
-  /// for (;;) {
-  ///   audio = await vad.process(audio)
-  ///   console.log(context.isSpeechDetected())
-  /// }
+  /// The instance must be initialized first. The block must contain exactly `blockSize`
+  /// samples, or at most `blockSize` if `variableBlockSize` is enabled.
+  /// Await each call before submitting the next block.
+  ///
+  /// ```javascript
+  /// const audio = await vad.process(block)
   /// ```
   // See the note on {@link ProcessorAsync#process} for why the buffer type is spelled out.
   #[napi(ts_return_type = "Promise<Float32Array<ArrayBuffer>>")]
   pub fn process(&self, audio: Float32Array) -> AsyncTask<VadProcessTask> {
     AsyncTask::new(VadProcessTask {
       slot: self.slot.clone(),
-      // Copied on the JS thread so the worker owns its samples and JS cannot mutate
-      // them mid-process. A block is a couple of kilobytes, negligible next to running
-      // the model over it.
+      // Copy on the JavaScript thread so the worker owns its input.
       audio: audio.to_vec(),
     })
   }
 
-  /// Creates a handle for reading predictions and controlling this VAD.
+  /// Returns a promise for a {@link VadContext} to control this VAD and read predictions.
   ///
-  /// Asynchronous because it takes the VAD lock, which a queued `process` may briefly
-  /// hold; awaiting keeps that wait off the event loop. The returned handle is the same
-  /// {@link VadContext} the synchronous class hands out, whose methods are synchronous,
-  /// so a prediction can be read from inside an audio callback.
+  /// Context creation runs on a worker thread because it may wait for processing to
+  /// release the instance lock. The returned context's methods are synchronous and can
+  /// be called while audio is being processed.
   #[napi(ts_return_type = "Promise<VadContext>")]
   pub fn get_context(&self) -> AsyncTask<VadContextTask> {
     AsyncTask::new(VadContextTask {
@@ -176,9 +175,14 @@ impl VadAsync {
     })
   }
 
-  /// Ends this VAD's telemetry session, after which it can no longer process audio.
+  /// Terminates the telemetry session associated with this VAD.
   ///
-  /// May block, so it runs on a worker.
+  /// Once termination is handled, the VAD can no longer process audio.
+  /// The session also ends when the native object is destroyed. Use this method when
+  /// termination must be requested at a specific lifecycle event.
+  ///
+  /// Termination runs on a libuv worker thread because it may block.
+  /// If another session is still active, termination can complete asynchronously.
   #[napi(ts_return_type = "Promise<void>")]
   pub fn terminate_session(&self) -> AsyncTask<VadTerminateTask> {
     AsyncTask::new(VadTerminateTask {
@@ -201,9 +205,8 @@ impl Task for VadWithConfigTask {
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<VadAsync> {
-    // A second JS handle onto the same native VAD. The footprint was reported once at
-    // construction, so nothing is reported here; the last handle's finalizer withdraws
-    // it. If the VAD was disposed mid-flight, this handle starts out disposed too.
+    // The returned handle shares the native instance and its existing memory report.
+    // If disposal occurred during initialization, this handle is also disposed.
     Ok(VadAsync {
       slot: self.slot.clone(),
     })
@@ -238,8 +241,7 @@ impl Task for VadProcessTask {
   type JsValue = Float32Array;
 
   fn compute(&mut self) -> Result<Vec<f32>> {
-    // Moved out so `resolve` can hand the buffer to V8 without another copy. The task
-    // runs once, so leaving an empty Vec behind is fine.
+    // Transfer the task buffer to `resolve` without another allocation.
     let audio = std::mem::take(&mut self.audio);
     map_err(lock(&self.slot).get_mut()?.process(&audio))?;
 
@@ -247,8 +249,7 @@ impl Task for VadProcessTask {
   }
 
   fn resolve(&mut self, _env: Env, audio: Vec<f32>) -> Result<Float32Array> {
-    // Hands the allocation to V8 as an external ArrayBuffer, so the block is not copied
-    // again on the way out.
+    // Transfer the allocation to V8 as an external ArrayBuffer without copying.
     Ok(Float32Array::new(audio))
   }
 }

@@ -1,8 +1,7 @@
-// Speech enhancement on the main thread.
+// Speech enhancement on the calling thread.
 //
-// The synchronous API: `process` enhances a block in place and returns nothing. Use this
-// when you are already on a dedicated audio thread. For a server or batch job, see
-// enhancement-async.js.
+// `process` modifies a mono block in place. Use this API in a dedicated worker or
+// batch script. See enhancement-async.js for processing through the libuv thread pool.
 
 const { Model, Processor, ProcessorParameter, getCompatibleModelVersion, getVersion } = require('..')
 
@@ -29,7 +28,7 @@ async function main() {
   const model = Model.fromFile(modelPath)
   console.log('Model id:', model.getId())
 
-  // The model's own settings give the lowest delay.
+  // Use the model's optimal configuration for the lowest delay.
   const sampleRate = model.getOptimalSampleRate()
   const blockSize = model.getOptimalBlockSize(sampleRate)
   console.log(`Audio format: ${blockSize} samples @ ${sampleRate} Hz`)
@@ -45,7 +44,7 @@ async function main() {
   context.setParameter(ProcessorParameter.EnhancementLevel, 0.7)
   console.log('Enhancement level:', context.getParameter(ProcessorParameter.EnhancementLevel))
 
-  // Stand-in for real audio: noise at a low level. Feed this real speech to hear anything.
+  // Generate low-level noise as sample input. Replace this with audio from your source.
   const audio = Float32Array.from({ length: blockSize }, () => (Math.random() - 0.5) * 0.2)
   console.log('Before:', audio.slice(0, 4))
 

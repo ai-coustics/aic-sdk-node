@@ -190,8 +190,7 @@ test('analyzer dispose waits for an in-flight analyzeAsync to finish', async (t)
   analyzer.dispose()
   const blockedMs = elapsedMs(disposeStarted)
 
-  // dispose() waited for the lock instead of pulling the analyzer out from under the
-  // worker, so the analysis produced a real result.
+  // The worker completed analysis before disposal acquired the lock.
   const result = await inFlight
   t.is(typeof result.riskScore, 'number', 'the in-flight analysis must complete, not be cancelled')
 
@@ -210,8 +209,8 @@ test('a withConfig handle outlives its original handle being collected', async (
   const sampleRate = model.getOptimalSampleRate()
   const blockSize = model.getOptimalBlockSize(sampleRate)
 
-  // The chaining form leaves the constructor's handle as garbage. Its finalizer must
-  // withdraw only its own footprint report, not destroy the shared native processor.
+  // The constructor's temporary handle may be finalized after `withConfig` resolves.
+  // Its finalizer must preserve the shared processor and its single memory report.
   const processor = await new ProcessorAsync(model, licenseKey()).withConfig(sampleRate, blockSize)
 
   // Push V8 towards a GC so the dropped handle's finalizer runs.

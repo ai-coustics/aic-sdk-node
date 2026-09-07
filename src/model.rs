@@ -9,16 +9,13 @@ use napi_derive::napi;
 
 /// A loaded ai-coustics model.
 ///
-/// One model can back multiple processors, VADs and analyzers, according to its type.
-/// The underlying model data is kept alive by every object created from it through
-/// internal reference counting, so this handle may be released first.
+/// The same model can be used to create multiple independent instances of a compatible
+/// processor, VAD or analyzer. Each instance retains a reference to the model data,
+/// so the `Model` handle can be disposed or garbage collected first.
 #[napi(custom_finalize)]
 pub struct Model {
-  // `from_file` memory-maps the file instead of borrowing a caller-owned buffer, so the
-  // SDK model is `'static` and needs no lifetime plumbing here.
-  //
-  // The slot's footprint is the mmap'd weights, so unlike the other classes it is a
-  // per-instance value: the model file's size.
+  // The memory-mapped model owns its data and has a `'static` lifetime.
+  // Report the file size as this instance's native memory estimate.
   slot: DisposableSlot<aic_sdk::Model<'static>>,
 }
 
@@ -41,12 +38,14 @@ impl Model {
 impl Model {
   /// Loads a model from a `.aicmodel` file.
   ///
-  /// The model data is memory-mapped, not copied into the process, so the file must
-  /// not be modified or deleted while this model, or any object created from it,
-  /// is alive.
+  /// The SDK memory-maps the file. Do not modify or delete it while the model or any
+  /// processor, VAD or analyzer created from it is still alive.
   ///
-  /// Browse available models at <https://artifacts.ai-coustics.io>, or fetch one with
-  /// {@link Model.download}.
+  /// Download models with {@link Model.download}. Available model IDs are listed at
+  /// <https://artifacts.ai-coustics.io>.
+  ///
+  /// @param path - Path to the model file.
+  /// @throws If the file cannot be loaded or its format is incompatible with this SDK.
   #[napi(factory)]
   pub fn from_file(env: Env, path: String) -> Result<Self> {
     let inner = map_err(aic_sdk::Model::from_file(&path))?;
@@ -57,24 +56,26 @@ impl Model {
     })
   }
 
-  /// Unmaps the model file immediately, releasing its footprint without waiting for
-  /// garbage collection.
+  /// Releases this handle's reference to the native model without waiting for garbage collection.
   ///
-  /// Objects already created from the model keep working: the SDK keeps the weights
-  /// alive through internal reference counting. Every later method on this handle
-  /// throws; calling `dispose()` again does nothing.
+  /// Instances created from this model remain usable. The file mapping is released when
+  /// its last reference is destroyed.
+  ///
+  /// After disposal, all methods except `dispose()` throw. Repeated disposal has no effect.
   #[napi]
   pub fn dispose(&mut self, env: Env) {
     self.slot.release(env);
   }
 
-  /// Downloads a model from the ai-coustics artifact CDN and resolves to its path.
+  /// Downloads a model from the ai-coustics CDN and returns a promise for its file path.
   ///
-  /// The manifest is re-fetched on every call so the newest compatible model version
-  /// is always used. An existing file with a matching checksum is not re-downloaded;
-  /// one with a mismatching checksum is replaced.
+  /// Each call fetches the manifest to select the latest compatible model version.
+  /// An existing file is reused if its checksum matches; otherwise it is replaced.
+  /// The download runs on Node's libuv thread pool.
   ///
-  /// The download runs on a worker thread, so it does not block the event loop.
+  /// @param modelId - Model ID listed at <https://artifacts.ai-coustics.io>.
+  /// @param downloadDir - Directory in which to store the model.
+  /// @returns A promise for the downloaded or cached model's path.
   // napi cannot infer an `AsyncTask`'s resolved type; without the annotation the
   // generated d.ts says `Promise<unknown>`.
   #[napi(ts_return_type = "Promise<string>")]
@@ -85,31 +86,30 @@ impl Model {
     })
   }
 
-  /// The model identifier, e.g. `quail-vf-2.2-s-16khz`.
+  /// Returns the model identifier, including its build and format version suffixes.
   #[napi]
   pub fn get_id(&self) -> Result<String> {
     Ok(self.inner()?.id().to_owned())
   }
 
-  /// The sample rate in Hz the model was trained for.
+  /// Returns the sample rate in Hz for which the model was trained.
   ///
-  /// Audio at any rate can be processed, but a model only enhances frequencies up to
-  /// its own Nyquist limit, so matching this rate gives the best quality.
+  /// The SDK resamples audio at other supported rates internally. Enhancement is limited
+  /// to frequencies below half the model's sample rate.
   #[napi]
   pub fn get_optimal_sample_rate(&self) -> Result<u32> {
     Ok(self.inner()?.optimal_sample_rate())
   }
 
-  /// The block size that avoids internal buffering at `sampleRate`.
+  /// Returns the optimal block size in samples for the given sample rate.
   ///
-  /// Any other block size adds buffering latency on top of the base processing delay.
-  /// The value changes with the sample rate, because the model works on a fixed time
-  /// window: a 10 ms window is 480 samples at 48 kHz but 160 at 16 kHz.
+  /// Use this value to avoid additional buffering latency. The block size depends on the
+  /// sample rate because each model processes a fixed duration of audio.
+  ///
+  /// @param sampleRate - Audio sample rate in Hz.
   #[napi]
   pub fn get_optimal_block_size(&self, sample_rate: u32) -> Result<u32> {
-    // The SDK reports sizes as `usize`, which napi would marshal as a JS BigInt, and a
-    // BigInt block size throws on `new Float32Array(n)` and on arithmetic against plain
-    // numbers. Block sizes are a few thousand samples at most, so u32 is ample.
+    // Use `u32` so block sizes are exposed as JavaScript numbers for typed-array lengths.
     Ok(self.inner()?.optimal_block_size(sample_rate) as u32)
   }
 }

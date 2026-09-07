@@ -2,8 +2,8 @@
 
 //! Node.js bindings for the ai-coustics SDK.
 //!
-//! Thin napi-rs layer over the `aic-sdk` crate: the classes here own the corresponding SDK
-//! types directly, so lifetimes, cleanup and thread-safety are handled upstream.
+//! The napi-rs classes wrap the Rust SDK's model, processing, VAD and analysis types.
+//! Native objects are released through explicit disposal or JavaScript finalization.
 
 use napi_derive::napi;
 
@@ -24,28 +24,23 @@ pub use processor_async::*;
 pub use vad::*;
 pub use vad_async::*;
 
-/// Telemetry id assigned to this binding. Must match `SdkWrapper::NodeJs` in
+/// Telemetry ID assigned to this binding. Must match `SdkWrapper::NodeJs` in
 /// `aic-sdk-telemetry`.
 const SDK_WRAPPER_ID_NODE: u32 = 4;
 
-/// Claims the Node telemetry id, unless a wrapper embedding this package claimed its own
-/// first via [`set_sdk_id`].
+/// Sets the Node telemetry ID unless an embedding wrapper has already set one.
 ///
-/// The id lives in a `OnceLock` upstream: the first write wins and every later write is
-/// silently discarded. `aic-sdk` sets `2` ("Rust") inside each of its `Processor`, `Vad`
-/// and analyzer constructors, so every constructor here claims `4` before delegating.
-///
-/// Not called at module load: an embedder can only reach [`set_sdk_id`] once the module
-/// is loaded, so the window between load and first construction stays open for their
-/// write.
+/// The upstream `OnceLock` accepts only the first write. Call this before delegating to
+/// an SDK constructor, which would otherwise set the Rust wrapper ID (2).
+/// Delaying this until construction lets embedders call [`set_sdk_id`] after module load.
 pub(crate) fn claim_sdk_id() {
-  // SAFETY: `4` is the wrapper id assigned to this binding by ai-coustics.
+  // SAFETY: `4` is the wrapper ID assigned to this binding by ai-coustics.
   unsafe { aic_sdk::set_sdk_id(SDK_WRAPPER_ID_NODE) };
 }
 
-/// Overrides the telemetry wrapper id. Internal only, for ai-coustics wrappers embedding
+/// Overrides the telemetry wrapper ID. Internal only, for ai-coustics wrappers embedding
 /// this package (e.g. the LiveKit plugin): call before constructing any `Processor`, `Vad`
-/// or `Analyzer`, whose constructors otherwise claim the id for this SDK. The id can only
+/// or `Analyzer`, whose constructors otherwise claim the ID for this SDK. The ID can only
 /// be set once per process; later writes are silently discarded.
 #[napi(js_name = "_setSdkId")]
 pub fn set_sdk_id(id: u32) {
@@ -53,17 +48,15 @@ pub fn set_sdk_id(id: u32) {
   unsafe { aic_sdk::set_sdk_id(id) };
 }
 
-/// The version of the underlying native SDK, e.g. `"0.23.0"`.
+/// Returns the version of the underlying native SDK.
 ///
-/// Not necessarily this package's version.
+/// This may differ from the Node.js package version.
 #[napi]
 pub fn get_version() -> String {
   aic_sdk::get_sdk_version().to_owned()
 }
 
-/// The model file format version this SDK can load.
-///
-/// Model URLs are versioned by this number, so it decides which model files are usable.
+/// Returns the model file format version supported by this SDK.
 #[napi]
 pub fn get_compatible_model_version() -> u32 {
   aic_sdk::get_compatible_model_version()

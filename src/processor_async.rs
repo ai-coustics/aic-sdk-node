@@ -14,24 +14,22 @@ use napi::{
 use napi_derive::napi;
 use std::sync::{Arc, Mutex};
 
-/// Speech enhancement processor that keeps its work off the main thread.
+/// Speech enhancement for use in async applications.
 ///
-/// The same processing as {@link Processor}, but each call returns a promise and runs on
-/// Node's libuv thread pool, so the event loop stays responsive. Prefer this when other
-/// work shares that loop, as in a server; prefer {@link Processor} on a dedicated audio
-/// thread or in a batch script, where nothing else needs the loop.
+/// Initialization, processing and context creation run on Node's libuv thread pool and
+/// return promises. Construction and disposal are synchronous.
 ///
-/// Mirrors `ProcessorAsync` in the Rust SDK.
+/// Use {@link Processor} when processing should run on the calling thread.
 ///
-/// ### Concurrency
+/// ### Threading
 ///
-/// One instance handles one stream. Do not start a second {@link ProcessorAsync#process}
-/// before the first resolves: libuv completes work items out of order, which would
-/// desync the stream. To process several streams at once, create several instances.
+/// Use one instance per stream and await each operation before submitting the next.
+/// Concurrent calls on one instance are not guaranteed to execute in submission order.
+/// Use separate instances to process multiple streams concurrently.
 ///
-/// The libuv pool is four threads by default and is shared with `fs`, `dns` and `crypto`.
-/// Raise `UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel.
-/// `AIC_NUM_THREADS` has no effect: it sizes a rayon pool this binding does not use.
+/// The libuv pool defaults to four threads and is shared with filesystem, DNS and crypto
+/// work. Set `UV_THREADPOOL_SIZE` before starting Node to change its size.
+/// `AIC_NUM_THREADS` does not apply to these bindings.
 #[napi(custom_finalize)]
 pub struct ProcessorAsync {
   slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
@@ -39,9 +37,9 @@ pub struct ProcessorAsync {
 
 impl ObjectFinalize for ProcessorAsync {
   fn finalize(self, env: Env) -> Result<()> {
-    // Only the last handle destroys the native object; while other handles or in-flight
-    // tasks hold an `Arc`, this leaves the object and its footprint report to them.
-    // A no-op if `dispose()` already ran.
+    // Release the object and V8 memory estimate only for the last shared handle.
+    // A pending task can retain the slot beyond finalization; see `DisposableSlot`.
+    // `release` has no effect if the object was already disposed.
     if Arc::strong_count(&self.slot) == 1 {
       lock(&self.slot).release(env);
     }
@@ -51,13 +49,15 @@ impl ObjectFinalize for ProcessorAsync {
 
 #[napi]
 impl ProcessorAsync {
-  /// Creates a processor from an enhancement or bypass model.
+  /// Creates a new async speech enhancement processor.
   ///
-  /// Construction is synchronous and throws on failure, as in the Rust SDK; only the
-  /// audio work runs on a worker thread.
+  /// Construction is synchronous and throws if creation fails. Await
+  /// {@link ProcessorAsync#initialize} or {@link ProcessorAsync#withConfig} before processing audio.
   ///
-  /// Telemetry follows the runtime environment; pass `otelConfig` to override it for this
-  /// instance.
+  /// @param model - Enhancement or bypass model. Other model types are rejected.
+  /// @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
+  /// @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
+  ///   the runtime environment.
   #[napi(constructor)]
   pub fn new(
     env: Env,
@@ -85,26 +85,26 @@ impl ProcessorAsync {
     })
   }
 
-  /// Destroys the native processor immediately, releasing its memory and telemetry
-  /// session without waiting for garbage collection.
+  /// Destroys the native processor and releases its telemetry session.
   ///
-  /// Every later method throws; calling `dispose()` again does nothing. Blocks until
-  /// in-flight work on the libuv pool finishes.
+  /// Use this for cleanup at a specific point instead of waiting for garbage collection.
+  /// After disposal, all methods except `dispose()` fail. Repeated disposal has no effect.
+  ///
+  /// This call blocks the calling thread while a worker holds the instance lock.
+  /// Queued work that acquires the lock after disposal rejects its promise.
   #[napi]
   pub fn dispose(&self, env: Env) {
     lock(&self.slot).release(env);
   }
 
-  /// Initializes the processor and resolves to a handle onto it, for chaining off the
-  /// constructor:
+  /// Initializes the processor and returns a promise for a handle to the initialized instance.
   ///
-  /// ```js
-  /// const processor = await new ProcessorAsync(model, licenseKey).withConfig(48000, 480)
+  /// Uses the same configuration as {@link ProcessorAsync#initialize}. The returned handle and
+  /// this object share the same native instance; disposing either invalidates both.
+  ///
+  /// ```javascript
+  /// const processor = await new ProcessorAsync(model, licenseKey).withConfig(sampleRate, blockSize)
   /// ```
-  ///
-  /// The handle it resolves to drives the same underlying processor as the receiver, so
-  /// either one can be used afterwards. The Rust SDK returns `self` here, which a promise
-  /// cannot express.
   #[napi(ts_return_type = "Promise<ProcessorAsync>")]
   pub fn with_config(
     &self,
@@ -118,9 +118,16 @@ impl ProcessorAsync {
     })
   }
 
-  /// Configures the processor for an audio format. Must be called before processing.
+  /// Configures the processor for the given audio format.
   ///
-  /// See {@link Processor#initialize}. Allocates, so it runs on a worker.
+  /// Await this method before processing audio. Use {@link Model#getOptimalSampleRate} and
+  /// {@link Model#getOptimalBlockSize} for the lowest delay.
+  /// Initialization allocates memory and runs on a libuv worker thread.
+  ///
+  /// @param sampleRate - Audio sample rate in Hz.
+  /// @param blockSize - Number of mono samples per block.
+  /// @param variableBlockSize - Allow blocks shorter than `blockSize`. Defaults to `false`.
+  ///   Variable block sizes can add buffering latency. Larger blocks are always rejected.
   #[napi(ts_return_type = "Promise<void>")]
   pub fn initialize(
     &self,
@@ -134,40 +141,34 @@ impl ProcessorAsync {
     })
   }
 
-  /// Enhances a mono audio block and resolves to the enhanced samples.
+  /// Enhances a mono audio block and returns a promise for the enhanced samples.
   ///
-  /// Unlike {@link Processor#process} this does **not** write into the caller's array.
-  /// The samples are copied out before the work is queued, so the input stays valid and
-  /// untouched while the promise is pending, and the result arrives as a new array:
+  /// The input is copied before work is queued and remains unmodified. The promise
+  /// resolves to a new `Float32Array` containing the enhanced samples.
   ///
-  /// ```js
-  /// let audio = new Float32Array(blockSize)
-  /// for (;;) audio = await processor.process(audio)
+  /// The instance must be initialized first. The block must contain exactly `blockSize`
+  /// samples, or at most `blockSize` if `variableBlockSize` is enabled.
+  /// Await each call before submitting the next block.
+  ///
+  /// ```javascript
+  /// const enhanced = await processor.process(block)
   /// ```
-  ///
-  /// The block must be exactly `blockSize` samples, or at most `blockSize` if
-  /// `variableBlockSize` was enabled.
-  // The buffer parameter is spelled out because TypeScript widens a bare `Float32Array`
-  // to `Float32Array<ArrayBufferLike>`, which does not assign back to a
-  // `let audio = new Float32Array(n)` and so breaks the reuse loop above. The buffer
-  // handed to V8 is always a plain, non-shared ArrayBuffer, so the narrower type holds.
+  // Specify ArrayBuffer so the result is assignable to a variable inferred from
+  // `new Float32Array(n)`. The returned buffer is never a SharedArrayBuffer.
   #[napi(ts_return_type = "Promise<Float32Array<ArrayBuffer>>")]
   pub fn process(&self, audio: Float32Array) -> AsyncTask<ProcessorProcessTask> {
     AsyncTask::new(ProcessorProcessTask {
       slot: self.slot.clone(),
-      // Copied on the JS thread so the worker owns its samples and JS cannot mutate
-      // them mid-process. A block is a couple of kilobytes, negligible next to running
-      // the model over it.
+      // Copy on the JavaScript thread so the worker owns its input.
       audio: audio.to_vec(),
     })
   }
 
-  /// Creates a handle for reading and writing this processor's parameters and state.
+  /// Returns a promise for a {@link ProcessorContext} to control this processor.
   ///
-  /// Asynchronous because it takes the processor lock, which a queued `process` may
-  /// briefly hold; awaiting keeps that wait off the event loop. The returned handle is
-  /// the same {@link ProcessorContext} the synchronous class hands out, with the same
-  /// synchronous methods.
+  /// Context creation runs on a worker thread because it may wait for processing to
+  /// release the instance lock. The returned context's methods are synchronous and can
+  /// be called while audio is being processed.
   #[napi(ts_return_type = "Promise<ProcessorContext>")]
   pub fn get_context(&self) -> AsyncTask<ProcessorContextTask> {
     AsyncTask::new(ProcessorContextTask {
@@ -175,9 +176,14 @@ impl ProcessorAsync {
     })
   }
 
-  /// Ends this processor's telemetry session, after which it can no longer process audio.
+  /// Terminates the telemetry session associated with this processor.
   ///
-  /// May block, so it runs on a worker.
+  /// Once termination is handled, the processor can no longer process audio.
+  /// The session also ends when the native object is destroyed. Use this method when
+  /// termination must be requested at a specific lifecycle event.
+  ///
+  /// Termination runs on a libuv worker thread because it may block.
+  /// If another session is still active, termination can complete asynchronously.
   #[napi(ts_return_type = "Promise<void>")]
   pub fn terminate_session(&self) -> AsyncTask<ProcessorTerminateTask> {
     AsyncTask::new(ProcessorTerminateTask {
@@ -200,9 +206,8 @@ impl Task for ProcessorWithConfigTask {
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<ProcessorAsync> {
-    // A second JS handle onto the same native processor. The footprint was reported once
-    // at construction, so nothing is reported here; the last handle's finalizer withdraws
-    // it. If the processor was disposed mid-flight, this handle starts out disposed too.
+    // The returned handle shares the native instance and its existing memory report.
+    // If disposal occurred during initialization, this handle is also disposed.
     Ok(ProcessorAsync {
       slot: self.slot.clone(),
     })
@@ -237,8 +242,7 @@ impl Task for ProcessorProcessTask {
   type JsValue = Float32Array;
 
   fn compute(&mut self) -> Result<Vec<f32>> {
-    // Moved out so `resolve` can hand the buffer to V8 without another copy. The task
-    // runs once, so leaving an empty Vec behind is fine.
+    // Transfer the task buffer to `resolve` without another allocation.
     let mut audio = std::mem::take(&mut self.audio);
     map_err(lock(&self.slot).get_mut()?.process(&mut audio))?;
 
@@ -246,8 +250,7 @@ impl Task for ProcessorProcessTask {
   }
 
   fn resolve(&mut self, _env: Env, audio: Vec<f32>) -> Result<Float32Array> {
-    // Hands the allocation to V8 as an external ArrayBuffer, so the enhanced samples
-    // are not copied again on the way out.
+    // Transfer the allocation to V8 as an external ArrayBuffer without copying.
     Ok(Float32Array::new(audio))
   }
 }

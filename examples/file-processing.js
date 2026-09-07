@@ -1,7 +1,4 @@
-// Enhances a WAV file end to end.
-//
-// Shows the two things a file tool needs beyond the basic loop: one processor per channel,
-// and compensating for the processor's delay so the output lines up with the input.
+// Enhances a WAV file using one processor per channel and compensates for audio delay.
 //
 // Usage:
 //   node examples/file-processing.js --input speech.wav [--output enhanced.wav]
@@ -30,8 +27,8 @@ model such as rook-l-48khz. Browse models at https://artifacts.ai-coustics.io`
  * @typedef {object} Options
  * @property {string} [input] WAV file to enhance
  * @property {string} [output] Where to write the result
- * @property {string} model Model id
- * @property {number} enhancement Enhancement level, 0.0 - 1.0
+ * @property {string} model Model ID
+ * @property {number} enhancement Enhancement level, 0.0 to 1.0
  * @property {boolean} [help] Whether usage was requested
  */
 
@@ -67,7 +64,7 @@ function parseArgs(argv) {
         options.help = true
         break
       default:
-        // A lone path with no flag is taken as the input, so the common case needs no flags.
+        // Accept a positional input path.
         if (!arg.startsWith('-') && !options.input) {
           options.input = arg
         } else {
@@ -116,8 +113,8 @@ async function main() {
   const model = Model.fromFile(await Model.download(options.model, MODEL_DIR))
   console.log('Model id:', model.getId())
 
-  // The file's rate drives the format, not the model's, since the SDK resamples
-  // internally. The block size that avoids extra buffering depends on that rate.
+  // Use the file's sample rate; the SDK resamples internally as needed.
+  // The optimal block size depends on this rate.
   const blockSize = model.getOptimalBlockSize(sampleRate)
 
   // Processing is mono, so each channel gets its own processor and its own internal state.
@@ -131,9 +128,8 @@ async function main() {
     return { processor, context }
   })
 
-  // Enhanced audio comes out this many samples late. Feeding that many extra samples of
-  // silence flushes the tail, and skipping that many samples of output realigns the result
-  // with the input. Without this the file would be shifted and truncated.
+  // Append silence to flush the delayed output, then skip the initial delay samples
+  // to align the enhanced file with the input.
   const delay = processors[0].context.getAudioDelay()
   console.log(`Block size: ${blockSize}, enhancement level: ${options.enhancement}, delay: ${delay} samples`)
 
@@ -146,8 +142,7 @@ async function main() {
     padded.set(channel)
 
     for (let offset = 0; offset < paddedLength; offset += blockSize) {
-      // A view onto `padded`, not a copy, and `process` enhances in place, so the result
-      // is written straight back into the output buffer.
+      // `subarray` shares the output buffer, so in-place processing writes directly into it.
       processors[index].processor.process(padded.subarray(offset, offset + blockSize))
     }
 

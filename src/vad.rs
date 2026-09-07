@@ -10,28 +10,32 @@ use crate::{
 use napi::{Env, bindgen_prelude::Float32Array, bindgen_prelude::ObjectFinalize};
 use napi_derive::napi;
 
-/// Voice activity detection parameters, all changeable while audio is being processed.
+/// Configurable voice activity detection parameters. Values can be changed during processing.
 #[napi]
 pub enum VadParameter {
-  /// How long the VAD keeps reporting speech after speech stops, which stabilizes
-  /// detected -> not-detected transitions.
+  /// Controls how long the VAD continues reporting speech after speech stops.
   ///
-  /// Speech is reported when at least half the blocks in the last
-  /// `speechHoldDuration * 2` seconds contained speech, so ongoing speech extends the
-  /// hold. Rounded to the model's window length, so reads may differ from writes.
+  /// Speech is reported if at least half the blocks processed in the last
+  /// `speechHoldDuration * 2` seconds contained speech. Additional speech during this
+  /// period extends the detection period.
   ///
-  /// Range 0.0 to 300x the model window length, in seconds. Model-specific default.
+  /// The duration is rounded to the nearest model window length, so the value read back
+  /// may differ from the value set.
+  ///
+  /// Range: 0.0 to 300 times the model window length, in seconds. Default: model-specific.
   SpeechHoldDuration = 0,
-  /// Probability threshold above which a block counts as speech, stabilizing how
-  /// readily speech is detected at all.
+  /// Sets the probability threshold for detecting speech in an audio block.
   ///
-  /// Range 0.0 - 1.0. Model-specific default.
+  /// A model probability above this threshold counts as speech.
+  ///
+  /// Range: 0.0 to 1.0. Default: model-specific.
   Sensitivity = 1,
-  /// How long speech must be present before the VAD reports it, which stabilizes
-  /// not-detected -> detected transitions.
+  /// Controls how long speech must be present before the VAD reports speech.
   ///
-  /// Rounded to the model's window length, so reads may differ from writes.
-  /// Range 0.0 - 1.0, in seconds. Model-specific default.
+  /// The duration is rounded to the nearest model window length, so the value read back
+  /// may differ from the value set.
+  ///
+  /// Range: 0.0 to 1.0 seconds. Default: model-specific.
   MinimumSpeechDuration = 2,
 }
 
@@ -45,20 +49,18 @@ impl From<VadParameter> for aic_sdk::VadParameter {
   }
 }
 
-/// Voice activity detector running a dedicated VAD model.
+/// Detects speech using a dedicated VAD model.
 ///
-/// Driven explicitly through {@link Vad#process} and independent of any
-/// {@link Processor}; predictions are read through a {@link VadContext}. Enhancement
-/// models are rejected.
+/// Call {@link Vad#initialize}, then pass mono audio to {@link Vad#process}.
+/// Processing leaves the audio unmodified and updates the prediction, which can be read
+/// through a {@link VadContext}.
 ///
-/// When enhancement and detection run together, feed this the **original** audio, not the
-/// processor's output: enhancement changes the signal the VAD model expects, and stacks
-/// the processor's delay onto the prediction. `process` leaves its input untouched, so
-/// call it on the same block before `Processor#process`.
+/// When using enhancement and detection together, pass the original input to the VAD
+/// before calling {@link Processor#process}. Enhanced audio changes the signal seen by
+/// the VAD and adds the processor's audio delay to the prediction delay.
 #[napi(custom_finalize)]
 pub struct Vad {
-  // No lock: every method here runs on the JS thread. Only the async class shares its
-  // slot with tasks on the libuv pool.
+  // Only the JavaScript thread accesses this slot. Async classes use a shared, locked slot.
   slot: DisposableSlot<aic_sdk::Vad<'static>>,
 }
 
@@ -72,10 +74,15 @@ impl ObjectFinalize for Vad {
 
 #[napi]
 impl Vad {
-  /// Creates a voice activity detector from a dedicated VAD model.
+  /// Creates a new voice activity detector.
   ///
-  /// Telemetry follows the runtime environment; pass `otelConfig` to override it for this
-  /// instance.
+  /// Construction is synchronous and throws if creation fails. Call
+  /// {@link Vad#initialize} before processing audio.
+  ///
+  /// @param model - Dedicated VAD model. Other model types are rejected.
+  /// @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
+  /// @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
+  ///   the runtime environment.
   #[napi(constructor)]
   pub fn new(
     env: Env,
@@ -96,19 +103,25 @@ impl Vad {
     })
   }
 
-  /// Destroys the native VAD immediately, releasing its memory and telemetry session
-  /// without waiting for garbage collection.
+  /// Destroys the native VAD and releases its telemetry session.
   ///
-  /// Every later method throws; calling `dispose()` again does nothing.
+  /// Use this for cleanup at a specific point instead of waiting for garbage collection.
+  /// After disposal, all methods except `dispose()` fail. Repeated disposal has no effect.
   #[napi]
   pub fn dispose(&mut self, env: Env) {
     self.slot.release(env);
   }
 
-  /// Configures the VAD for an audio format. Must be called before processing.
+  /// Configures the VAD for the given audio format.
   ///
-  /// The model's optimal sample rate and block size give the most frequent prediction
-  /// updates. Allocates, so keep it off the audio path.
+  /// Call this method before processing audio. Use {@link Model#getOptimalSampleRate} and
+  /// {@link Model#getOptimalBlockSize} for the most frequent prediction updates.
+  /// This method allocates memory; avoid calling it from audio processing callbacks.
+  ///
+  /// @param sampleRate - Audio sample rate in Hz.
+  /// @param blockSize - Number of mono samples per block.
+  /// @param variableBlockSize - Allow blocks shorter than `blockSize`. Defaults to `false`.
+  ///   Variable block sizes can add buffering latency. Larger blocks are always rejected.
   #[napi]
   pub fn initialize(
     &mut self,
@@ -123,17 +136,19 @@ impl Vad {
     )))
   }
 
-  /// Examines a mono audio block and updates the prediction, leaving the audio unmodified.
+  /// Processes a mono audio block and updates the VAD prediction without modifying the input.
+  ///
+  /// Call {@link Vad#initialize} first. The block must contain exactly `blockSize` samples,
+  /// or at most `blockSize` if `variableBlockSize` is enabled.
   #[napi]
   pub fn process(&mut self, audio: Float32Array) -> Result<()> {
-    // Read-only, so the safe `Deref` to `&[f32]` covers it. Taking the view by value
-    // does not copy the caller's samples.
+    // Borrow the typed-array contents without copying or modifying them.
     map_err(self.slot.get_mut()?.process(&audio))
   }
 
   /// Creates a handle for reading predictions and controlling this VAD.
   ///
-  /// Each call returns an independent handle onto the same VAD.
+  /// Each call returns an independent handle to the same VAD.
   #[napi]
   pub fn get_context(&self) -> Result<VadContext> {
     Ok(VadContext {
@@ -141,7 +156,14 @@ impl Vad {
     })
   }
 
-  /// Ends this VAD's telemetry session, after which it can no longer process audio.
+  /// Terminates the telemetry session associated with this VAD.
+  ///
+  /// Once termination is handled, the VAD can no longer process audio.
+  /// The session also ends when the native object is destroyed. Use this method when
+  /// termination must be requested at a specific lifecycle event.
+  ///
+  /// This method may block. Avoid calling it from audio processing callbacks.
+  /// If another session is still active, termination can complete asynchronously.
   #[napi]
   pub fn terminate_session(&mut self) -> Result<()> {
     map_err(self.slot.get_mut()?.terminate_session())
@@ -165,13 +187,13 @@ impl VadContext {
     map_err(self.inner.set_parameter(parameter.into(), value as f32))
   }
 
-  /// Reads the current value of a VAD parameter.
+  /// Returns the current value of a VAD parameter.
   #[napi]
   pub fn get_parameter(&self, parameter: VadParameter) -> Result<f64> {
     map_err(self.inner.parameter(parameter.into())).map(f64::from)
   }
 
-  /// Whether speech is currently detected.
+  /// Returns whether speech is currently detected.
   ///
   /// The decision lags its input by {@link VadContext#getPredictionDelay} samples, and
   /// stops updating if the backing VAD stops being processed.
@@ -180,39 +202,49 @@ impl VadContext {
     self.inner.is_speech_detected()
   }
 
-  /// The model's raw prediction, in the range 0.0 - 1.0.
+  /// Returns the model's speech probability in the range 0.0 to 1.0.
   ///
-  /// Unlike {@link VadContext#isSpeechDetected} this skips the SDK's post-processing
-  /// (speech hold, sensitivity thresholding), for building your own abstractions on top.
-  /// The same latency notes apply.
+  /// This value excludes speech hold, sensitivity thresholding and minimum speech duration.
+  /// Use it to implement custom detection logic. The prediction delay reported by
+  /// {@link VadContext#getPredictionDelay} also applies to this value.
   #[napi]
   pub fn get_raw_vad_probability(&self) -> f64 {
     self.inner.raw_vad_probability().into()
   }
 
-  /// How far the prediction lags its input, in samples at the initialized rate.
+  /// Returns the prediction delay in samples at the configured sample rate.
   ///
-  /// Covers input reblocking, STFT and model processing. This delay is **not** applied to
-  /// the audio (`process` leaves the buffer untouched), so use it to line speech
-  /// decisions up with the audio timeline. Independent of a processor's audio delay.
+  /// Includes input buffering, STFT and model processing. Non-optimal or variable block
+  /// sizes can add buffering latency. Convert to milliseconds with
+  /// `delaySamples * 1000 / sampleRate`.
+  ///
+  /// Use this delay to align speech decisions with the input audio. It is independent of
+  /// a processor's audio delay; VAD processing does not delay or modify the audio.
   #[napi]
   pub fn get_prediction_delay(&self) -> u32 {
     self.inner.prediction_delay() as u32
   }
 
-  /// Clears internal state, including the published prediction.
+  /// Clears internal state and buffers, including the published speech decision and probability.
   ///
-  /// Call this on a stream discontinuity or when seeking, to keep earlier audio from
-  /// causing mispredictions.
+  /// Call this when the stream is interrupted or when seeking to prevent predictions
+  /// from using previous audio. The VAD remains initialized with its configured settings.
   #[napi]
   pub fn reset(&self) -> Result<()> {
     map_err(self.inner.reset())
   }
 
-  /// Swaps in a renewed JWT without interrupting processing.
+  /// Replaces the bearer token on the running VAD.
   ///
-  /// Only works when both the original key and the new token are JWTs. On failure the
-  /// call is a no-op and the previous token stays active.
+  /// Use this to refresh a JWT without recreating the instance. Both the original license
+  /// key and the new token must be JWTs. If this call fails, the previous token remains active.
+  ///
+  /// A successful call validates the token's format and applies it immediately. Backend
+  /// acceptance is checked later. If the backend rejects the token, the SDK retries with
+  /// backoff; processing is eventually disabled if no accepted token arrives in time.
+  /// Supply a valid token to recover the session.
+  ///
+  /// This method allocates memory and takes a mutex. Avoid calling it from audio processing callbacks.
   #[napi]
   pub fn update_bearer_token(&self, token: String) -> Result<()> {
     map_err(self.inner.update_bearer_token(&token))

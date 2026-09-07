@@ -44,8 +44,8 @@ test('sdk expects the model version the fixtures are published under', (t) => {
 test('model exposes its id and optimal settings', (t) => {
   const model = enhancementModel()
 
-  // The model file's own id carries the build hash and version, e.g.
-  // `quail-vf-2.2-s-16khz-gf70x7zf-v14`, so it extends the manifest id used to download it.
+  // The model file's own ID carries the build hash and version, e.g.
+  // `quail-vf-2.2-s-16khz-gf70x7zf-v14`, so it extends the manifest ID used to download it.
   t.true(
     model.getId().startsWith(TEST_MODELS.enhancement.id),
     `expected ${model.getId()} to start with ${TEST_MODELS.enhancement.id}`,
@@ -175,9 +175,8 @@ test('async processor matches the sync processor sample for sample', async (t) =
     model.getOptimalBlockSize(model.getOptimalSampleRate()),
   )
 
-  // Same model, settings and input, and both start from a fresh state, so moving the work
-  // to a worker thread and copying the block across must not change the output. Four
-  // blocks, so a drift in the processor's internal state would show up too.
+  // Compare four blocks from fresh processors with identical input and settings.
+  // Async scheduling and buffer copies must preserve output and state transitions.
   for (let block = 0; block < 4; block += 1) {
     const audio = ramp(blockSize)
     const expected = audio.slice()
@@ -216,8 +215,7 @@ test('async processors on separate instances can run concurrently', async (t) =>
   const sampleRate = model.getOptimalSampleRate()
   const blockSize = model.getOptimalBlockSize(sampleRate)
 
-  // Parallelism is across instances, never within one: libuv completes work items out of
-  // order, so overlapping calls on a single instance would desync the stream.
+  // Use independent processors for concurrency; calls within each stream must be ordered.
   const processors = await Promise.all(
     Array.from({ length: 4 }, () => new ProcessorAsync(model, licenseKey()).withConfig(sampleRate, blockSize)),
   )
@@ -408,10 +406,8 @@ test('audio can be buffered while an analysis is in flight', async (t) => {
   t.is(typeof result.riskScore, 'number')
 })
 
-// 'async processor rejects instead of throwing' covers async errors arriving as a
-// rejection, because processing before initialize is a certain error. The analyzer has no
-// equally certain one: nobody has checked whether analyzing before initialize errors or
-// returns silence-padded scores, so this file asserts nothing about it.
+// Async rejection behavior is covered by the processor test, which processes before
+// initialization. No equivalent analyzer failure is assumed here.
 
 test('each class rejects the wrong model type', (t) => {
   const key = licenseKey()

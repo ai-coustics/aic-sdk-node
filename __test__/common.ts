@@ -27,9 +27,9 @@ export function modelPath(kind: ModelKind): string {
 }
 
 /**
- * The license key the SDK needs to construct anything.
+ * Returns the SDK license key used by the tests.
  *
- * Throws up front, so a missing key is not reported later as a license error.
+ * Throws if AIC_SDK_LICENSE is missing.
  */
 export function licenseKey(): string {
   const key = process.env.AIC_SDK_LICENSE

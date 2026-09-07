@@ -2,19 +2,17 @@
 
 Runnable scripts for each part of the SDK.
 
-| Example                | Shows                                                     |
-| ---------------------- | --------------------------------------------------------- |
-| `enhancement.js`       | Speech enhancement, in place on the calling thread        |
-| `enhancement-async.js` | The same on a worker thread, then several streams at once |
-| `vad.js`               | Voice activity detection and its parameters               |
-| `vad-async.js`         | Async detection, and detection combined with enhancement  |
-| `analysis.js`          | Audio quality scoring, blocking and on a worker thread    |
-| `file-processing.js`   | A WAV file end to end, with delay compensation            |
+| Example                | Shows                                                    |
+| ---------------------- | -------------------------------------------------------- |
+| `enhancement.js`       | Speech enhancement, in place on the calling thread       |
+| `enhancement-async.js` | Async speech enhancement and concurrent streams          |
+| `vad.js`               | Voice activity detection and its parameters              |
+| `vad-async.js`         | Async detection, and detection combined with enhancement |
+| `analysis.js`          | Audio quality scoring, blocking and on a worker thread   |
+| `file-processing.js`   | WAV file enhancement with delay compensation             |
 
-Analysis needs no separate async script: only `analyzeAsync` moves off the calling thread, so
-both forms live in `analysis.js`. File processing has no async counterpart because it does not need
-one: a batch job has no event loop to keep free, and the sync API is the simpler tool. For
-parallel batch work, run several processes.
+`analysis.js` demonstrates both `analyze` and `analyzeAsync`. The file processing example
+uses synchronous processing. For parallel batch processing, run several processes.
 
 ## Setup
 
@@ -54,26 +52,24 @@ node examples/file-processing.js --input speech.wav
 node examples/file-processing.js --input speech.wav --output enhanced.wav --enhancement 0.7
 ```
 
-`--model` tries a different model and `--help` lists every option. A model only enhances up
+`--model` selects the model and `--help` lists all options. A model only enhances up
 to its own Nyquist limit, so pair a 48 kHz source with a 48 kHz model such as `rook-l-48khz`.
 Browse the catalogue at [artifacts.ai-coustics.io](https://artifacts.ai-coustics.io).
 
 ## Choosing between sync and async
 
-`Processor` and `Vad` do their work on the thread that calls them. That is what you want on a
-dedicated audio thread, where a promise per block would only add overhead.
+`Processor` and `Vad` run on the calling thread. Use them in a dedicated worker or a batch
+script where blocking is acceptable.
 
-`ProcessorAsync` and `VadAsync` run on Node's libuv thread pool, so the event loop stays
-responsive. That matters when something else is waiting on it, as in a server handling live
-streams alongside its sockets and HTTP. It buys a batch script nothing. Two differences to
-keep in mind:
+`ProcessorAsync` and `VadAsync` run processing on Node's libuv thread pool, keeping the event
+loop available for other work. Their constructors and `dispose()` methods are synchronous.
 
-- `process` does not write into the array it is given. It copies the input, so that array
-  stays valid while the promise is pending, and resolves to the samples instead.
-- One instance handles one stream, and calls on it must not overlap: worker threads finish
-  out of order, which would desync the stream. Parallelism comes from running several
-  instances, as the end of `enhancement-async.js` shows.
+- `process` copies the input and returns a promise for a new array. The input remains
+  unmodified. Enhancement returns enhanced samples; VAD returns the original samples.
+- Await each operation before submitting the next on the same instance. Calls are not
+  guaranteed to execute in submission order. Use one instance per stream to process
+  multiple streams concurrently.
 
-The pool is four threads by default and is shared with `fs`, `dns` and `crypto`. Raise
-`UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel. The core SDK's
-`AIC_NUM_THREADS` has no effect on these bindings.
+The pool defaults to four threads and is shared with filesystem, DNS and crypto work. Set
+`UV_THREADPOOL_SIZE` before starting Node to change its size. `AIC_NUM_THREADS` does not apply
+to these bindings.

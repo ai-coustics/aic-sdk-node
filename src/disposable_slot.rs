@@ -1,10 +1,7 @@
-//! One native SDK object, destroyed exactly once, with its footprint reported to V8 for
-//! as long as it lives.
+//! Owns a native SDK object and tracks its estimated memory usage in V8.
 //!
-//! Every binding class holds its SDK object in a slot, so the disposed error and the
-//! footprint reporting live here instead of in each class. The slot has no interior
-//! mutability; the classes that share their object with tasks on the libuv pool wrap it
-//! in an `Arc<Mutex<_>>` and reach it through [`lock`].
+//! All binding classes use this slot for disposal checks and memory reporting.
+//! Classes shared with libuv tasks wrap it in `Arc<Mutex<_>>`.
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -24,7 +21,7 @@ use crate::{
 ///
 /// A slot dropped without `release` having run still destroys the object, but its bytes
 /// stay reported: withdrawing them needs an `Env`, which `Drop` does not have. This
-/// happens when the last JS handle onto a shared object is finalized while a task still
+/// happens when the last JS handle to a shared object is finalized while a task still
 /// holds a clone, and leaves V8 over-reported for the rest of the process.
 pub(crate) struct DisposableSlot<T> {
   inner: Option<T>,
@@ -71,12 +68,10 @@ impl<T> DisposableSlot<T> {
   }
 }
 
-/// Locks a shared slot, recovering the guard if the lock is poisoned.
+/// Locks a shared slot, recovering the guard if the mutex is poisoned.
 ///
-/// A blocking `Mutex` suits the callers: the tasks that share a slot run on libuv
-/// workers. Poisoning would take a panic inside an SDK call, which leaves the slot's own
-/// `Option` intact, so recovering the guard is safe and keeps later calls working,
-/// disposal included.
+/// Recovery allows disposal after a task panics. The slot's `Option` still records
+/// whether the native object has been released.
 pub(crate) fn lock<T>(slot: &Mutex<T>) -> MutexGuard<'_, T> {
   slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }

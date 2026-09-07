@@ -45,10 +45,10 @@ async function main() {
   console.log('Speech hold duration:', context.getParameter(VadParameter.SpeechHoldDuration), 's')
 
   // The decision lags its input by this many samples. It is not applied to the audio, so
-  // use it to line speech decisions up with the audio timeline.
+  // use it to align speech decisions with the input audio.
   console.log('Prediction delay:', context.getPredictionDelay(), 'samples')
 
-  // Silence, so nothing should be reported. Feed real speech to see this flip.
+  // Process silence as sample input. Replace this with audio from your source.
   const audio = new Float32Array(blockSize)
   for (let block = 0; block < 10; block += 1) {
     // Reads the block without modifying it, so the same buffer can go on to a processor.
