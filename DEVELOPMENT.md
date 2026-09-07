@@ -26,10 +26,17 @@ The npm version tracks the version of the `aic-sdk` Rust crate it wraps. Bump
 merge commit:
 
 ```bash
-git tag x.x.x && git push origin x.x.x
+git tag vx.x.x && git push origin vx.x.x
 ```
+
+The `v` prefix is required: `napi prepublish` names the GitHub release `v<version>`, so a
+bare tag makes it create a second one alongside yours.
 
 Pushing the tag builds all six targets, runs the tests and examples, and publishes to npm.
 The tag must match the version in `package.json` or the publish step fails. A tag with a
-prerelease suffix, such as `0.24.0-rc.1`, publishes under the `next` dist-tag instead of
+prerelease suffix, such as `v0.24.0-rc.1`, publishes under the `next` dist-tag instead of
 `latest`.
+
+The GitHub release notes are the matching `CHANGELOG.md` section, extracted by
+`scripts/changelog-section.mjs`. A release whose version has no section there fails rather
+than publishing empty notes.

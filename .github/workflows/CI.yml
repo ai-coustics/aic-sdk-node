@@ -12,7 +12,6 @@ permissions:
     branches:
       - main
     tags:
-      - '[0-9]+.[0-9]+.[0-9]+*'
       - 'v[0-9]+.[0-9]+.[0-9]+*'
   pull_request: null
 concurrency:
@@ -397,3 +396,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Update the release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node scripts/changelog-section.mjs "$VERSION" > release-notes.md
+          gh release edit "$GITHUB_REF_NAME" --title "$VERSION" --notes-file release-notes.md
