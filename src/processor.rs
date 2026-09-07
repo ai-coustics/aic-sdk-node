@@ -60,8 +60,8 @@ impl From<OtelConfig> for aic_sdk::OtelConfig {
 
 /// Builds the SDK audio config shared by processors, VADs and analyzers.
 ///
-/// Block sizes cross the JS boundary as `u32` rather than the SDK's `usize`, which napi
-/// would marshal as a BigInt.
+/// Block sizes cross the JS boundary as `u32`; the SDK's `usize` would reach JS as a
+/// BigInt.
 pub(crate) fn audio_config(
   sample_rate: u32,
   block_size: u32,
@@ -82,14 +82,14 @@ pub(crate) fn audio_config(
 /// Create several processors to handle multiple streams or to switch models at runtime.
 #[napi(custom_finalize)]
 pub struct Processor {
-  // Owned outright, with no lock: every method here runs on the JS thread. The async
-  // class shares the same slot with its tasks instead.
+  // No lock: every method here runs on the JS thread. Only the async class shares its
+  // slot with tasks on the libuv pool.
   slot: DisposableSlot<aic_sdk::Processor<'static>>,
 }
 
 impl ObjectFinalize for Processor {
   fn finalize(mut self, env: Env) -> Result<()> {
-    // A no-op when `dispose()` already gave the footprint back.
+    // A no-op if `dispose()` already ran.
     self.slot.release(env);
     Ok(())
   }
@@ -159,14 +159,14 @@ impl Processor {
   /// `variableBlockSize` was enabled.
   #[napi]
   pub fn process(&mut self, mut audio: Float32Array) -> Result<()> {
-    // Taken by value, which does not copy: `Float32Array` is a view holding a reference
-    // to the caller's ArrayBuffer, so writes below land in the JS-owned buffer.
+    // Taken by value without copying: `Float32Array` is a view onto the caller's
+    // ArrayBuffer, so the writes below land in the JS-owned buffer.
     //
     // SAFETY: `as_mut` is unsafe because JS could mutate the backing ArrayBuffer
-    // concurrently. It cannot here: this call is synchronous, so no JS runs while the
+    // concurrently. It cannot here: the call is synchronous, so no JS runs while the
     // slice is alive, the slice never escapes this function, and each Node thread has
-    // its own isolate. A SharedArrayBuffer written by another worker mid-call would
-    // break that assumption, which is inherent to processing JS-owned buffers in place.
+    // its own isolate. The exception is a SharedArrayBuffer written by another worker
+    // mid-call, which no in-place API can guard against.
     let samples = unsafe { audio.as_mut() };
 
     map_err(self.slot.get_mut()?.process(samples))
@@ -184,8 +184,9 @@ impl Processor {
 
   /// Ends this processor's telemetry session, after which it can no longer process audio.
   ///
-  /// Intended for lifecycle events: a session is closed automatically when the processor
-  /// is collected, but GC timing is not guaranteed. May block, so keep it off the audio path.
+  /// A session is closed automatically when the processor is collected, but GC timing is
+  /// not guaranteed, so call this on a lifecycle event instead. May block, so keep it off
+  /// the audio path.
   #[napi]
   pub fn terminate_session(&mut self) -> Result<()> {
     map_err(self.slot.get_mut()?.terminate_session())
@@ -194,11 +195,10 @@ impl Processor {
 
 /// Control handle for a {@link Processor}.
 ///
-/// Every method may be called while audio is being processed. The handle and the processor
-/// have independent lifetimes in both directions: releasing the handle does not destroy
-/// the processor it came from, and the handle stays valid after its processor is disposed
-/// or garbage-collected. Calls on it keep succeeding; they just no longer reach a live
-/// processor.
+/// Every method may be called while audio is being processed. Handle and processor have
+/// independent lifetimes: releasing the handle does not destroy the processor, and the
+/// handle stays valid after its processor is disposed or garbage-collected, though its
+/// calls then no longer reach a live processor.
 #[napi]
 pub struct ProcessorContext {
   pub(crate) inner: aic_sdk::ProcessorContext,

@@ -53,18 +53,18 @@ impl From<VadParameter> for aic_sdk::VadParameter {
 ///
 /// When enhancement and detection run together, feed this the **original** audio, not the
 /// processor's output: enhancement changes the signal the VAD model expects, and stacks
-/// the processor's delay onto the prediction. Since `process` leaves its input untouched,
-/// calling it on the same block before `Processor#process` is enough.
+/// the processor's delay onto the prediction. `process` leaves its input untouched, so
+/// call it on the same block before `Processor#process`.
 #[napi(custom_finalize)]
 pub struct Vad {
-  // Owned outright, with no lock: every method here runs on the JS thread. The async
-  // class shares the same slot with its tasks instead.
+  // No lock: every method here runs on the JS thread. Only the async class shares its
+  // slot with tasks on the libuv pool.
   slot: DisposableSlot<aic_sdk::Vad<'static>>,
 }
 
 impl ObjectFinalize for Vad {
   fn finalize(mut self, env: Env) -> Result<()> {
-    // A no-op when `dispose()` already gave the footprint back.
+    // A no-op if `dispose()` already ran.
     self.slot.release(env);
     Ok(())
   }
@@ -126,8 +126,8 @@ impl Vad {
   /// Examines a mono audio block and updates the prediction, leaving the audio unmodified.
   #[napi]
   pub fn process(&mut self, audio: Float32Array) -> Result<()> {
-    // Read-only, so the safe `Deref` to `&[f32]` is enough here. Taking the view by
-    // value does not copy the caller's samples.
+    // Read-only, so the safe `Deref` to `&[f32]` covers it. Taking the view by value
+    // does not copy the caller's samples.
     map_err(self.slot.get_mut()?.process(&audio))
   }
 
@@ -183,8 +183,8 @@ impl VadContext {
   /// The model's raw prediction, in the range 0.0 - 1.0.
   ///
   /// Unlike {@link VadContext#isSpeechDetected} this skips the SDK's post-processing
-  /// (speech hold, sensitivity thresholding), which is useful for building your own
-  /// abstractions on top. The same latency notes apply.
+  /// (speech hold, sensitivity thresholding), for building your own abstractions on top.
+  /// The same latency notes apply.
   #[napi]
   pub fn get_raw_vad_probability(&self) -> f64 {
     self.inner.raw_vad_probability().into()

@@ -30,9 +30,8 @@ use std::sync::{Arc, Mutex};
 /// desync the stream. To process several streams at once, create several instances.
 ///
 /// The libuv pool is four threads by default and is shared with `fs`, `dns` and `crypto`.
-/// Raise `UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel. The
-/// SDK's own `AIC_NUM_THREADS` does not apply here: that variable sizes a rayon pool this
-/// binding deliberately does not use.
+/// Raise `UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel.
+/// `AIC_NUM_THREADS` has no effect: it sizes a rayon pool this binding does not use.
 #[napi(custom_finalize)]
 pub struct ProcessorAsync {
   slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
@@ -40,9 +39,9 @@ pub struct ProcessorAsync {
 
 impl ObjectFinalize for ProcessorAsync {
   fn finalize(self, env: Env) -> Result<()> {
-    // Only the last handle onto the native object destroys it; with other handles or
-    // in-flight tasks holding an `Arc`, this leaves the object (and its footprint
-    // report) for them. Idempotent against `dispose()`.
+    // Only the last handle destroys the native object; while other handles or in-flight
+    // tasks hold an `Arc`, this leaves the object and its footprint report to them.
+    // A no-op if `dispose()` already ran.
     if Arc::strong_count(&self.slot) == 1 {
       lock(&self.slot).release(env);
     }
@@ -55,7 +54,7 @@ impl ProcessorAsync {
   /// Creates a processor from an enhancement or bypass model.
   ///
   /// Construction is synchronous and throws on failure, as in the Rust SDK; only the
-  /// audio work is deferred to a worker thread.
+  /// audio work runs on a worker thread.
   ///
   /// Telemetry follows the runtime environment; pass `otelConfig` to override it for this
   /// instance.
@@ -104,7 +103,8 @@ impl ProcessorAsync {
   /// ```
   ///
   /// The handle it resolves to drives the same underlying processor as the receiver, so
-  /// either one can be used afterwards. Rust returns `self` here, which JS cannot express.
+  /// either one can be used afterwards. The Rust SDK returns `self` here, which a promise
+  /// cannot express.
   #[napi(ts_return_type = "Promise<ProcessorAsync>")]
   pub fn with_config(
     &self,
@@ -120,7 +120,7 @@ impl ProcessorAsync {
 
   /// Configures the processor for an audio format. Must be called before processing.
   ///
-  /// See {@link Processor#initialize}. Allocates, which is why it runs on a worker.
+  /// See {@link Processor#initialize}. Allocates, so it runs on a worker.
   #[napi(ts_return_type = "Promise<void>")]
   pub fn initialize(
     &self,
@@ -138,8 +138,7 @@ impl ProcessorAsync {
   ///
   /// Unlike {@link Processor#process} this does **not** write into the caller's array.
   /// The samples are copied out before the work is queued, so the input stays valid and
-  /// untouched no matter what the caller does while the promise is pending, and the
-  /// result arrives as a new array:
+  /// untouched while the promise is pending, and the result arrives as a new array:
   ///
   /// ```js
   /// let audio = new Float32Array(blockSize)
@@ -148,17 +147,17 @@ impl ProcessorAsync {
   ///
   /// The block must be exactly `blockSize` samples, or at most `blockSize` if
   /// `variableBlockSize` was enabled.
-  // Spelled out as `Float32Array<ArrayBuffer>` rather than a bare `Float32Array`, which
-  // TypeScript widens to `Float32Array<ArrayBufferLike>`, which would not assign back to
-  // a `let audio = new Float32Array(n)`, breaking the reuse loop above. The buffer handed
-  // to V8 is always a plain ArrayBuffer, never shared, so the narrower type is accurate.
+  // The buffer parameter is spelled out because TypeScript widens a bare `Float32Array`
+  // to `Float32Array<ArrayBufferLike>`, which does not assign back to a
+  // `let audio = new Float32Array(n)` and so breaks the reuse loop above. The buffer
+  // handed to V8 is always a plain, non-shared ArrayBuffer, so the narrower type holds.
   #[napi(ts_return_type = "Promise<Float32Array<ArrayBuffer>>")]
   pub fn process(&self, audio: Float32Array) -> AsyncTask<ProcessorProcessTask> {
     AsyncTask::new(ProcessorProcessTask {
       slot: self.slot.clone(),
-      // Copied on the JS thread so the worker owns its samples outright. A block is a
-      // couple of kilobytes, far below the cost of running the model over it, and it
-      // removes any chance of JS mutating the buffer mid-process.
+      // Copied on the JS thread so the worker owns its samples and JS cannot mutate
+      // them mid-process. A block is a couple of kilobytes, negligible next to running
+      // the model over it.
       audio: audio.to_vec(),
     })
   }
@@ -167,8 +166,8 @@ impl ProcessorAsync {
   ///
   /// Asynchronous because it takes the processor lock, which a queued `process` may
   /// briefly hold; awaiting keeps that wait off the event loop. The returned handle is
-  /// the same {@link ProcessorContext} the synchronous class hands out, and every one of
-  /// its methods is synchronous.
+  /// the same {@link ProcessorContext} the synchronous class hands out, with the same
+  /// synchronous methods.
   #[napi(ts_return_type = "Promise<ProcessorContext>")]
   pub fn get_context(&self) -> AsyncTask<ProcessorContextTask> {
     AsyncTask::new(ProcessorContextTask {
@@ -178,7 +177,7 @@ impl ProcessorAsync {
 
   /// Ends this processor's telemetry session, after which it can no longer process audio.
   ///
-  /// May block, which is why it runs on a worker.
+  /// May block, so it runs on a worker.
   #[napi(ts_return_type = "Promise<void>")]
   pub fn terminate_session(&self) -> AsyncTask<ProcessorTerminateTask> {
     AsyncTask::new(ProcessorTerminateTask {
@@ -187,7 +186,6 @@ impl ProcessorAsync {
   }
 }
 
-/// Backs {@link ProcessorAsync#withConfig}.
 pub struct ProcessorWithConfigTask {
   slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
   config: aic_sdk::ProcessorConfig,
@@ -202,16 +200,15 @@ impl Task for ProcessorWithConfigTask {
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<ProcessorAsync> {
-    // A second JS handle onto the same native processor. The footprint is reported once
-    // per object at construction, so there is nothing to report here; the last handle's
-    // finalizer gives it back. Born disposed when the processor was disposed mid-flight.
+    // A second JS handle onto the same native processor. The footprint was reported once
+    // at construction, so nothing is reported here; the last handle's finalizer withdraws
+    // it. If the processor was disposed mid-flight, this handle starts out disposed too.
     Ok(ProcessorAsync {
       slot: self.slot.clone(),
     })
   }
 }
 
-/// Backs {@link ProcessorAsync#initialize}.
 pub struct ProcessorInitializeTask {
   slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
   config: aic_sdk::ProcessorConfig,
@@ -230,7 +227,6 @@ impl Task for ProcessorInitializeTask {
   }
 }
 
-/// Backs {@link ProcessorAsync#process}.
 pub struct ProcessorProcessTask {
   slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
   audio: Vec<f32>,
@@ -241,8 +237,8 @@ impl Task for ProcessorProcessTask {
   type JsValue = Float32Array;
 
   fn compute(&mut self) -> Result<Vec<f32>> {
-    // Moved out rather than borrowed so the buffer can be handed to V8 in `resolve`
-    // without another copy. The task is used once, so leaving an empty Vec behind is fine.
+    // Moved out so `resolve` can hand the buffer to V8 without another copy. The task
+    // runs once, so leaving an empty Vec behind is fine.
     let mut audio = std::mem::take(&mut self.audio);
     map_err(lock(&self.slot).get_mut()?.process(&mut audio))?;
 
@@ -256,7 +252,6 @@ impl Task for ProcessorProcessTask {
   }
 }
 
-/// Backs {@link ProcessorAsync#getContext}.
 pub struct ProcessorContextTask {
   slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
 }
@@ -274,7 +269,6 @@ impl Task for ProcessorContextTask {
   }
 }
 
-/// Backs {@link ProcessorAsync#terminateSession}.
 pub struct ProcessorTerminateTask {
   slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
 }

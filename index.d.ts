@@ -3,17 +3,17 @@
 /**
  * Analyzer for analysis models such as Tyto.
  *
- * Buffering and analysis are deliberately separate calls: {@link Analyzer#buffer} is cheap
- * enough for the audio path, while running the model is not. Analysis therefore comes in
- * two forms: {@link Analyzer#analyzeAsync} on a worker thread, and
- * {@link Analyzer#analyze} on the calling thread.
+ * Buffering and analysis are separate calls: {@link Analyzer#buffer} is cheap enough for
+ * the audio path, while running the model is not. Analysis comes in two forms,
+ * {@link Analyzer#analyzeAsync} on a worker thread and {@link Analyzer#analyze} on the
+ * calling thread.
  *
  * Only a fixed span of audio is retained, determined by the model; older audio is
  * discarded as more is buffered.
  *
  * The SDK splits this into a collector and an analyzer so the two halves can live on
- * different threads. A class instance cannot cross into a Node worker, so both are exposed
- * as one object here, but the split still shows through: {@link Analyzer#buffer} drives
+ * different threads. A class instance cannot cross into a Node worker, so both are
+ * exposed as one object here, and the split shows through: {@link Analyzer#buffer} drives
  * the collector on the calling thread, while {@link Analyzer#analyzeAsync} moves the
  * analyzer half onto a worker. The SDK guarantees the two are safe to use concurrently.
  */
@@ -45,24 +45,22 @@ export declare class Analyzer {
    *
    * Analysis is mono. Mix multichannel audio down, or use one analyzer per channel.
    *
-   * This is the expensive call, and it blocks. Prefer {@link Analyzer#analyzeAsync} unless
+   * This call is expensive and blocks. Prefer {@link Analyzer#analyzeAsync} unless
    * nothing else is waiting on the event loop.
    */
   analyze(): AnalysisResult
   /**
    * Runs the analysis model over the buffered audio on a worker thread.
    *
-   * Same result as {@link Analyzer#analyze}, off the event loop. The SDK's
-   * analysis models are too expensive to run on an audio thread, so this is the form to
-   * reach for in a server: analysis is occasional, and a promise costs nothing next to
-   * the model.
+   * Same result as {@link Analyzer#analyze}, off the event loop. Prefer this wherever
+   * the analysis model is too expensive to run on the calling thread.
    *
-   * {@link Analyzer#buffer} stays synchronous and takes no lock, so audio can keep arriving
-   * while an analysis is in flight. The SDK guarantees the collector and analyzer halves
-   * are safe to use concurrently. The other methods here do take the analyzer's lock, so
-   * calling {@link Analyzer#analyze}, {@link Analyzer#reset} or
-   * {@link Analyzer#terminateSession} while this is pending blocks the calling thread until
-   * it finishes.
+   * {@link Analyzer#buffer} stays synchronous and takes no lock, so audio can keep
+   * arriving while an analysis is in flight; the SDK guarantees the collector and
+   * analyzer halves are safe to use concurrently. The other methods here do take the
+   * analyzer's lock, so calling {@link Analyzer#analyze}, {@link Analyzer#reset} or
+   * {@link Analyzer#terminateSession} while this is pending blocks the calling thread
+   * until it finishes.
    */
   analyzeAsync(): Promise<AnalysisResult>
   /** Clears buffered audio and internal state, keeping the configured audio settings. */
@@ -184,8 +182,9 @@ export declare class Processor {
   /**
    * Ends this processor's telemetry session, after which it can no longer process audio.
    *
-   * Intended for lifecycle events: a session is closed automatically when the processor
-   * is collected, but GC timing is not guaranteed. May block, so keep it off the audio path.
+   * A session is closed automatically when the processor is collected, but GC timing is
+   * not guaranteed, so call this on a lifecycle event instead. May block, so keep it off
+   * the audio path.
    */
   terminateSession(): void
 }
@@ -207,16 +206,15 @@ export declare class Processor {
  * desync the stream. To process several streams at once, create several instances.
  *
  * The libuv pool is four threads by default and is shared with `fs`, `dns` and `crypto`.
- * Raise `UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel. The
- * SDK's own `AIC_NUM_THREADS` does not apply here: that variable sizes a rayon pool this
- * binding deliberately does not use.
+ * Raise `UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel.
+ * `AIC_NUM_THREADS` has no effect: it sizes a rayon pool this binding does not use.
  */
 export declare class ProcessorAsync {
   /**
    * Creates a processor from an enhancement or bypass model.
    *
    * Construction is synchronous and throws on failure, as in the Rust SDK; only the
-   * audio work is deferred to a worker thread.
+   * audio work runs on a worker thread.
    *
    * Telemetry follows the runtime environment; pass `otelConfig` to override it for this
    * instance.
@@ -239,13 +237,14 @@ export declare class ProcessorAsync {
    * ```
    *
    * The handle it resolves to drives the same underlying processor as the receiver, so
-   * either one can be used afterwards. Rust returns `self` here, which JS cannot express.
+   * either one can be used afterwards. The Rust SDK returns `self` here, which a promise
+   * cannot express.
    */
   withConfig(sampleRate: number, blockSize: number, variableBlockSize?: boolean | undefined | null): Promise<ProcessorAsync>
   /**
    * Configures the processor for an audio format. Must be called before processing.
    *
-   * See {@link Processor#initialize}. Allocates, which is why it runs on a worker.
+   * See {@link Processor#initialize}. Allocates, so it runs on a worker.
    */
   initialize(sampleRate: number, blockSize: number, variableBlockSize?: boolean | undefined | null): Promise<void>
   /**
@@ -253,8 +252,7 @@ export declare class ProcessorAsync {
    *
    * Unlike {@link Processor#process} this does **not** write into the caller's array.
    * The samples are copied out before the work is queued, so the input stays valid and
-   * untouched no matter what the caller does while the promise is pending, and the
-   * result arrives as a new array:
+   * untouched while the promise is pending, and the result arrives as a new array:
    *
    * ```js
    * let audio = new Float32Array(blockSize)
@@ -270,14 +268,14 @@ export declare class ProcessorAsync {
    *
    * Asynchronous because it takes the processor lock, which a queued `process` may
    * briefly hold; awaiting keeps that wait off the event loop. The returned handle is
-   * the same {@link ProcessorContext} the synchronous class hands out, and every one of
-   * its methods is synchronous.
+   * the same {@link ProcessorContext} the synchronous class hands out, with the same
+   * synchronous methods.
    */
   getContext(): Promise<ProcessorContext>
   /**
    * Ends this processor's telemetry session, after which it can no longer process audio.
    *
-   * May block, which is why it runs on a worker.
+   * May block, so it runs on a worker.
    */
   terminateSession(): Promise<void>
 }
@@ -285,11 +283,10 @@ export declare class ProcessorAsync {
 /**
  * Control handle for a {@link Processor}.
  *
- * Every method may be called while audio is being processed. The handle and the processor
- * have independent lifetimes in both directions: releasing the handle does not destroy
- * the processor it came from, and the handle stays valid after its processor is disposed
- * or garbage-collected. Calls on it keep succeeding; they just no longer reach a live
- * processor.
+ * Every method may be called while audio is being processed. Handle and processor have
+ * independent lifetimes: releasing the handle does not destroy the processor, and the
+ * handle stays valid after its processor is disposed or garbage-collected, though its
+ * calls then no longer reach a live processor.
  */
 export declare class ProcessorContext {
   /** Sets an enhancement parameter. Throws if the value is out of range. */
@@ -329,8 +326,8 @@ export declare class ProcessorContext {
  *
  * When enhancement and detection run together, feed this the **original** audio, not the
  * processor's output: enhancement changes the signal the VAD model expects, and stacks
- * the processor's delay onto the prediction. Since `process` leaves its input untouched,
- * calling it on the same block before `Processor#process` is enough.
+ * the processor's delay onto the prediction. `process` leaves its input untouched, so
+ * call it on the same block before `Processor#process`.
  */
 export declare class Vad {
   /**
@@ -386,16 +383,15 @@ export declare class Vad {
  * instances.
  *
  * The libuv pool is four threads by default and is shared with `fs`, `dns` and `crypto`.
- * Raise `UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel. The
- * SDK's own `AIC_NUM_THREADS` does not apply here: that variable sizes a rayon pool this
- * binding deliberately does not use.
+ * Raise `UV_THREADPOOL_SIZE` before Node starts to run more streams in parallel.
+ * `AIC_NUM_THREADS` has no effect: it sizes a rayon pool this binding does not use.
  */
 export declare class VadAsync {
   /**
    * Creates a voice activity detector from a dedicated VAD model.
    *
    * Construction is synchronous and throws on failure, as in the Rust SDK; only the
-   * audio work is deferred to a worker thread.
+   * audio work runs on a worker thread.
    *
    * Telemetry follows the runtime environment; pass `otelConfig` to override it for this
    * instance.
@@ -418,13 +414,14 @@ export declare class VadAsync {
    * ```
    *
    * The handle it resolves to drives the same underlying VAD as the receiver, so either
-   * one can be used afterwards. Rust returns `self` here, which JS cannot express.
+   * one can be used afterwards. The Rust SDK returns `self` here, which a promise cannot
+   * express.
    */
   withConfig(sampleRate: number, blockSize: number, variableBlockSize?: boolean | undefined | null): Promise<VadAsync>
   /**
    * Configures the VAD for an audio format. Must be called before processing.
    *
-   * See {@link Vad#initialize}. Allocates, which is why it runs on a worker.
+   * See {@link Vad#initialize}. Allocates, so it runs on a worker.
    */
   initialize(sampleRate: number, blockSize: number, variableBlockSize?: boolean | undefined | null): Promise<void>
   /**
@@ -432,9 +429,9 @@ export declare class VadAsync {
    * samples unmodified.
    *
    * The samples are copied out before the work is queued, so the caller's array stays
-   * valid and untouched no matter what it does while the promise is pending. The block
-   * is handed back (rather than resolving to nothing) to match the Rust SDK, so a
-   * streaming loop reads the same either side of the boundary:
+   * valid and untouched while the promise is pending. The block is handed back, instead
+   * of the promise resolving to nothing, to match the Rust SDK and to keep a streaming
+   * loop reading the same either side of the boundary:
    *
    * ```js
    * let audio = new Float32Array(blockSize)
@@ -450,14 +447,14 @@ export declare class VadAsync {
    *
    * Asynchronous because it takes the VAD lock, which a queued `process` may briefly
    * hold; awaiting keeps that wait off the event loop. The returned handle is the same
-   * {@link VadContext} the synchronous class hands out, and every one of its methods is
-   * synchronous, so a prediction can be read from inside an audio callback.
+   * {@link VadContext} the synchronous class hands out, whose methods are synchronous,
+   * so a prediction can be read from inside an audio callback.
    */
   getContext(): Promise<VadContext>
   /**
    * Ends this VAD's telemetry session, after which it can no longer process audio.
    *
-   * May block, which is why it runs on a worker.
+   * May block, so it runs on a worker.
    */
   terminateSession(): Promise<void>
 }
@@ -484,8 +481,8 @@ export declare class VadContext {
    * The model's raw prediction, in the range 0.0 - 1.0.
    *
    * Unlike {@link VadContext#isSpeechDetected} this skips the SDK's post-processing
-   * (speech hold, sensitivity thresholding), which is useful for building your own
-   * abstractions on top. The same latency notes apply.
+   * (speech hold, sensitivity thresholding), for building your own abstractions on top.
+   * The same latency notes apply.
    */
   getRawVadProbability(): number
   /**

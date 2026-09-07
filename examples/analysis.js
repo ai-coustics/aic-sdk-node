@@ -1,11 +1,11 @@
 // Audio quality analysis.
 //
-// Buffering and analysis are deliberately separate calls: `buffer` is cheap enough for the
-// audio path, while running the model is not. Analysis therefore comes in two forms, both
-// shown below: `analyzeAsync` on a worker thread and `analyze` on the calling thread.
+// Buffering and analysis are separate calls: `buffer` is cheap enough for the audio path,
+// while running the model is not. Analysis comes in two forms, both shown below:
+// `analyzeAsync` on a worker thread and `analyze` on the calling thread.
 //
-// There is no separate `AnalyzerAsync` class, because only one call moves off-thread:
-// `buffer` stays synchronous so it stays cheap, and can be called while an analysis runs.
+// There is no separate `AnalyzerAsync` class because only one call moves off-thread.
+// `buffer` stays synchronous, and can be called while an analysis runs.
 
 const { Analyzer, Model, getVersion } = require('..')
 
@@ -44,9 +44,8 @@ async function main() {
   }
   console.log('Buffered 100 blocks')
 
-  // The heavy call, on a worker thread. This is the one to reach for in a server: analysis
-  // is occasional, so a promise costs nothing next to running the model, and the event loop
-  // stays free for everything else.
+  // The heavy call, on a worker thread. Use this in a server: the event loop stays free
+  // while the model runs, and the tick counter below shows it.
   let ticks = 0
   const ticker = setInterval(() => {
     ticks += 1

@@ -87,7 +87,7 @@ test('model download resolves to a path without blocking the event loop', async 
 test('processor enhances audio in place', (t) => {
   const { processor, blockSize } = initializedProcessor()
 
-  // Ramp rather than silence, so an in-place write is visible.
+  // A ramp, not silence, so an in-place write is visible.
   const audio = Float32Array.from({ length: blockSize }, (_, i) => Math.sin(i / 10) * 0.5)
   const original = audio.slice()
 
@@ -144,7 +144,7 @@ test('processor context rejects an out-of-range parameter', (t) => {
   t.throws(() => processor.getContext().setParameter(ProcessorParameter.EnhancementLevel, 7))
 })
 
-/** A ramp rather than silence, so that processing has a visible effect. */
+/** A ramp, not silence, so that processing has a visible effect. */
 function ramp(length: number) {
   return Float32Array.from({ length }, (_, i) => Math.sin(i / 10) * 0.5)
 }
@@ -175,9 +175,9 @@ test('async processor matches the sync processor sample for sample', async (t) =
     model.getOptimalBlockSize(model.getOptimalSampleRate()),
   )
 
-  // Same model, same settings, same input, and both start from a fresh state: moving the
-  // work to a worker thread and copying the block across must not change a single sample.
-  // Several blocks, so a divergence in the processor's internal state would show up too.
+  // Same model, settings and input, and both start from a fresh state, so moving the work
+  // to a worker thread and copying the block across must not change the output. Four
+  // blocks, so a drift in the processor's internal state would show up too.
   for (let block = 0; block < 4; block += 1) {
     const audio = ramp(blockSize)
     const expected = audio.slice()
@@ -394,8 +394,8 @@ test('async analysis keeps the event loop responsive', async (t) => {
 test('audio can be buffered while an analysis is in flight', async (t) => {
   const { analyzer, audio } = bufferedAnalyzer()
 
-  // The point of holding only the analyzer half behind the lock: `buffer` drives the
-  // collector, so it neither waits on a running analysis nor throws.
+  // Only the analyzer half sits behind the lock, and `buffer` drives the collector, so
+  // it neither waits on a running analysis nor throws.
   const pending = analyzer.analyzeAsync()
 
   t.notThrows(() => {
@@ -408,10 +408,10 @@ test('audio can be buffered while an analysis is in flight', async (t) => {
   t.is(typeof result.riskScore, 'number')
 })
 
-// Errors from an async call surfacing as a rejection rather than a throw is covered by
-// 'async processor rejects instead of throwing', which has a known error to trigger. The
-// analyzer has no equally certain one. Whether analyzing before initialize errors or just
-// returns silence-padded scores is unverified, so it is not asserted here.
+// 'async processor rejects instead of throwing' covers async errors arriving as a
+// rejection, because processing before initialize is a certain error. The analyzer has no
+// equally certain one: nobody has checked whether analyzing before initialize errors or
+// returns silence-padded scores, so this file asserts nothing about it.
 
 test('each class rejects the wrong model type', (t) => {
   const key = licenseKey()
@@ -420,8 +420,8 @@ test('each class rejects the wrong model type', (t) => {
   t.throws(() => new Processor(vadModel(), key), undefined, 'Processor should reject a VAD model')
   t.throws(() => new Analyzer(enhancementModel(), key), undefined, 'Analyzer should reject an enhancement model')
 
-  // The async classes construct synchronously, so a wrong model throws here too rather
-  // than rejecting later.
+  // The async classes construct synchronously, so a wrong model throws here as well
+  // instead of rejecting later.
   t.throws(() => new VadAsync(enhancementModel(), key), undefined, 'VadAsync should reject an enhancement model')
   t.throws(() => new ProcessorAsync(vadModel(), key), undefined, 'ProcessorAsync should reject a VAD model')
 })
@@ -431,8 +431,8 @@ test('loading a missing model file throws', (t) => {
 })
 
 test('removed pre-rewrite API is absent', async (t) => {
-  // The rewrite dropped these exports. Asserting the old names are gone keeps the migration
-  // guide in the CHANGELOG honest, and catches an accidental re-introduction.
+  // The rewrite dropped these exports; the CHANGELOG's migration guide lists them.
+  // Asserting the names are gone catches an accidental re-introduction.
   const sdk = (await import('../index.js')) as Record<string, unknown>
 
   for (const removed of ['analyzerPair', 'Collector', 'OtelConfig', 'FileAnalyzer']) {

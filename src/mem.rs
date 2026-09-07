@@ -1,21 +1,18 @@
 //! Reports the native footprint of SDK objects to V8's garbage collector.
 //!
-//! Each binding class is a small JS object of a few dozen bytes in front of a much larger
-//! native allocation, from ~200 KiB for a processor up to the size of the model weights.
-//! V8's heuristics only see the JS side: `heapUsed` and `external` barely move, so the
-//! collector feels no pressure to reclaim dropped instances, and a workload that creates
-//! processors per unit of work ratchets RSS up until the process is OOM-killed.
+//! Each binding class is a small JS object in front of a much larger native allocation,
+//! from ~200 KiB for a processor up to the size of the model weights. V8 only sees the JS
+//! side, so without a hint it has no reason to collect dropped instances and a workload
+//! that creates processors per unit of work grows unchecked.
+//! `Env::adjust_external_memory` (`napi_adjust_external_memory`) reports that hidden cost.
 //!
-//! `Env::adjust_external_memory` (`napi_adjust_external_memory`) is the Node-API mechanism
-//! for reporting that hidden cost. Both halves of the ledger live in
-//! [`DisposableSlot`](crate::disposable_slot::DisposableSlot): it reports its object's
-//! footprint when constructed and reports the negation when released, by `dispose()` or by
-//! the class finalizer, whichever gets there first. Either way the ledger balances.
+//! [`DisposableSlot`](crate::disposable_slot::DisposableSlot) does the reporting. It adds
+//! its object's footprint on construction and withdraws it again on release, whether that
+//! comes from `dispose()` or from the class finalizer, whichever gets there first.
 //!
-//! Footprints are per-class constants because the SDK exposes no per-instance memory
-//! query. They are estimates keyed to measurement and deliberately err high: over-reporting
-//! only makes V8 collect a little more eagerly, while under-reporting leaves the growth
-//! above unchecked.
+//! The SDK exposes no per-instance memory query, so the footprints below are per-class
+//! constants: measured estimates, rounded up. Over-reporting only costs some extra GC
+//! work; under-reporting would let the growth back in.
 
 use std::path::Path;
 
@@ -31,9 +28,9 @@ const KIB: i64 = 1024;
 /// - `quail-vf-2.2-l` (20 MiB model): ~462 KiB
 /// - `vad-2.1-xxs` (0.6 MiB model): ~197 KiB
 ///
-/// The workspace barely scales with the weights (those stay file-backed under `Model`),
-/// so 512 KiB covers the largest measured enhancement model with headroom while staying
-/// within ~3x of the smallest.
+/// The weights stay file-backed under `Model`, so the workspace scales only weakly with
+/// model size. 512 KiB covers the largest measured model with headroom and stays within
+/// ~3x of the smallest.
 pub(crate) const PROCESSOR_BYTES: i64 = 512 * KIB;
 
 /// The analyzer half of an `Analyzer`, which holds the model workspace. Measured ~8.2 MiB
@@ -42,7 +39,7 @@ pub(crate) const PROCESSOR_BYTES: i64 = 512 * KIB;
 ///
 /// Reported separately from [`COLLECTOR_BYTES`] because the two halves are destroyed
 /// independently: the collector can go while a worker thread still analyzes, so a single
-/// report for the pair would be given back too early.
+/// report for the pair would be released too early.
 pub(crate) const ANALYZER_BYTES: i64 = 14 * MIB;
 
 /// The collector half of an `Analyzer`, which holds the buffered audio. Measured as the
@@ -50,28 +47,24 @@ pub(crate) const ANALYZER_BYTES: i64 = 14 * MIB;
 /// 5 s span, so 2 MiB leaves ~3x headroom.
 pub(crate) const COLLECTOR_BYTES: i64 = 2 * MIB;
 
-/// Fallback footprint for a `Model` when its file cannot be stat'd. Deliberately
-/// conservative: the loaded model is memory-mapped, so its resident share approaches the
-/// file size as pages are touched.
+/// Fallback footprint for a `Model` when its file cannot be stat'd. The weights are
+/// memory-mapped, so the resident share approaches the file size as pages are touched.
 const MODEL_FALLBACK_BYTES: i64 = 64 * MIB;
 
 /// Tells V8 that `delta_bytes` of external (native) memory changed.
 ///
 /// Positive when an object is created, negative (the same value) when it is finalized.
-/// The result is a GC hint only: a failed adjustment is never worth failing the API call
-/// over, so errors are ignored.
+/// This is only a GC hint, so a failed adjustment is ignored.
 pub(crate) fn adjust(env: Env, delta_bytes: i64) {
   if delta_bytes == 0 {
     return;
   }
 
-  // A non-Ok status only means the hint was not applied; correctness does not depend on
-  // it, and there is nothing useful to do about a failed hint anyway.
   let _ = env.adjust_external_memory(delta_bytes);
 }
 
-/// The resident footprint to report for a model loaded from `path`: the file size, since
-/// the weights are memory-mapped, falling back to a conservative estimate.
+/// The footprint to report for a model loaded from `path`. The weights are memory-mapped,
+/// so this is the file size, or [`MODEL_FALLBACK_BYTES`] when the file cannot be stat'd.
 pub(crate) fn model_bytes(path: &Path) -> i64 {
   std::fs::metadata(path)
     .map(|meta| meta.len() as i64)

@@ -14,17 +14,17 @@ use napi_derive::napi;
 /// internal reference counting, so this handle may be released first.
 #[napi(custom_finalize)]
 pub struct Model {
-  // `from_file` memory-maps the file rather than borrowing a caller-owned buffer, so
-  // the SDK model is `'static` and needs no lifetime plumbing here.
+  // `from_file` memory-maps the file instead of borrowing a caller-owned buffer, so the
+  // SDK model is `'static` and needs no lifetime plumbing here.
   //
-  // The slot's footprint is this instance's alone: the mmap'd weights. It is per-instance
-  // rather than a per-class constant, since it is the model file's size.
+  // The slot's footprint is the mmap'd weights, so unlike the other classes it is a
+  // per-instance value: the model file's size.
   slot: DisposableSlot<aic_sdk::Model<'static>>,
 }
 
 impl ObjectFinalize for Model {
   fn finalize(mut self, env: Env) -> Result<()> {
-    // A no-op when `dispose()` already gave the footprint back.
+    // A no-op if `dispose()` already ran.
     self.slot.release(env);
     Ok(())
   }
@@ -75,8 +75,8 @@ impl Model {
   /// one with a mismatching checksum is replaced.
   ///
   /// The download runs on a worker thread, so it does not block the event loop.
-  // napi cannot infer an `AsyncTask`'s resolved type, so it is declared explicitly;
-  // without this the generated d.ts says `Promise<unknown>`.
+  // napi cannot infer an `AsyncTask`'s resolved type; without the annotation the
+  // generated d.ts says `Promise<unknown>`.
   #[napi(ts_return_type = "Promise<string>")]
   pub fn download(model_id: String, download_dir: String) -> AsyncTask<DownloadTask> {
     AsyncTask::new(DownloadTask {
@@ -107,10 +107,9 @@ impl Model {
   /// window: a 10 ms window is 480 samples at 48 kHz but 160 at 16 kHz.
   #[napi]
   pub fn get_optimal_block_size(&self, sample_rate: u32) -> Result<u32> {
-    // The SDK reports sizes as `usize`, which napi would marshal as a JS BigInt.
-    // A BigInt block size would throw on `new Float32Array(n)` and on arithmetic
-    // against plain numbers, so it crosses the boundary as u32. Block sizes are a
-    // few thousand samples at most.
+    // The SDK reports sizes as `usize`, which napi would marshal as a JS BigInt, and a
+    // BigInt block size throws on `new Float32Array(n)` and on arithmetic against plain
+    // numbers. Block sizes are a few thousand samples at most, so u32 is ample.
     Ok(self.inner()?.optimal_block_size(sample_rate) as u32)
   }
 }

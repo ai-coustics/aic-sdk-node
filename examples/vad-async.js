@@ -1,8 +1,8 @@
 // Voice activity detection off the main thread.
 //
 // `VadAsync` mirrors `Vad` on a worker thread. `process` copies the block in and hands it
-// straight back, which is what makes the combined pattern at the end of this file read
-// cleanly: the same block goes to the VAD and then on to the processor.
+// straight back, so the same block can go to the VAD and then on to a processor, as in the
+// combined pattern at the end of this file.
 
 const { Model, ProcessorAsync, VadAsync, VadParameter, getVersion } = require('..')
 
@@ -54,8 +54,8 @@ async function main() {
   //
   // The VAD must see the *original* audio, not the processor's output: enhancement is
   // designed to change the signal, so detecting on its output runs the VAD model on audio
-  // it was not trained for, and stacks the processor's delay onto the prediction. Because
-  // the VAD hands its block back untouched, ordering the two calls is all it takes.
+  // it was not trained for, and stacks the processor's delay onto the prediction. The VAD
+  // hands its block back untouched, so ordering the two calls is enough.
   console.log('\nRunning detection and enhancement on the same stream')
 
   const enhancementModel = Model.fromFile(await Model.download(ENHANCEMENT_MODEL_ID, MODEL_DIR))

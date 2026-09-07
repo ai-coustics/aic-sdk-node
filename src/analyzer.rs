@@ -55,17 +55,17 @@ impl From<aic_sdk::AnalysisResult> for AnalysisResult {
 
 /// Analyzer for analysis models such as Tyto.
 ///
-/// Buffering and analysis are deliberately separate calls: {@link Analyzer#buffer} is cheap
-/// enough for the audio path, while running the model is not. Analysis therefore comes in
-/// two forms: {@link Analyzer#analyzeAsync} on a worker thread, and
-/// {@link Analyzer#analyze} on the calling thread.
+/// Buffering and analysis are separate calls: {@link Analyzer#buffer} is cheap enough for
+/// the audio path, while running the model is not. Analysis comes in two forms,
+/// {@link Analyzer#analyzeAsync} on a worker thread and {@link Analyzer#analyze} on the
+/// calling thread.
 ///
 /// Only a fixed span of audio is retained, determined by the model; older audio is
 /// discarded as more is buffered.
 ///
 /// The SDK splits this into a collector and an analyzer so the two halves can live on
-/// different threads. A class instance cannot cross into a Node worker, so both are exposed
-/// as one object here, but the split still shows through: {@link Analyzer#buffer} drives
+/// different threads. A class instance cannot cross into a Node worker, so both are
+/// exposed as one object here, and the split shows through: {@link Analyzer#buffer} drives
 /// the collector on the calling thread, while {@link Analyzer#analyzeAsync} moves the
 /// analyzer half onto a worker. The SDK guarantees the two are safe to use concurrently.
 #[napi(custom_finalize)]
@@ -73,23 +73,19 @@ pub struct Analyzer {
   // Neither half borrows the other, nor the model: `'static` here is the model weights'
   // lifetime, which `Model.fromFile` satisfies by memory-mapping the file.
   //
-  // Only the analyzer half is shared. The collector is owned outright, so `buffer`, the
-  // one call on the audio path, takes no lock and cannot contend with an analysis running
-  // on a worker thread.
+  // Only the analyzer half is shared, so `buffer`, the one call on the audio path, takes
+  // no lock and cannot contend with an analysis running on a worker thread.
   collector: DisposableSlot<aic_sdk::Collector>,
   analyzer: Arc<Mutex<DisposableSlot<aic_sdk::Analyzer<'static>>>>,
 }
 
 impl ObjectFinalize for Analyzer {
   fn finalize(mut self, env: Env) -> Result<()> {
-    // Each half is released on its own, and each release is a no-op when `dispose()`
-    // got there first.
-    //
-    // An in-flight `AnalyzeTask` holds the analyzer `Arc`, so that half is dropped
-    // only after the worker finishes, and its footprint is left for whoever holds the
-    // last handle. The collector drops here, possibly while the worker analyzes. That
-    // is safe per the C API, which destroys the paired halves independently, in any
-    // order (`aic_collector_destroy`).
+    // An in-flight `AnalyzeTask` holds the analyzer `Arc`, so that half is dropped only
+    // after the worker finishes, and its footprint report is left to whoever holds the
+    // last handle. The collector drops here, possibly mid-analysis, which
+    // `aic_collector_destroy` permits: the paired halves are destroyed independently, in
+    // any order. Both releases are no-ops if `dispose()` got there first.
     self.collector.release(env);
     if Arc::strong_count(&self.analyzer) == 1 {
       lock(&self.analyzer).release(env);
@@ -125,14 +121,10 @@ impl Analyzer {
   /// in-flight `analyzeAsync` on a worker thread finishes.
   #[napi]
   pub fn dispose(&mut self, env: Env) {
-    // The collector is released before the analyzer lock is taken, so it can be
-    // destroyed while an `analyzeAsync` is in flight on a worker. That is safe per the
-    // C API (`aic_collector_destroy`): the paired halves are destroyed independently, in
-    // any order, and the collector handle itself is only ever used on this thread. The
-    // analyzer half is destroyed under the lock, which is what blocks until the
-    // in-flight analysis finishes.
-    //
-    // Both releases are idempotent, so a second `dispose()` does nothing.
+    // The collector is released without taking the analyzer lock, so it can be destroyed
+    // while an `analyzeAsync` is in flight; see the finalizer for why that is safe. The
+    // analyzer half is released under the lock, so this call blocks until that analysis
+    // finishes. Both releases are idempotent.
     self.collector.release(env);
     lock(&self.analyzer).release(env);
   }
@@ -168,7 +160,7 @@ impl Analyzer {
   ///
   /// Analysis is mono. Mix multichannel audio down, or use one analyzer per channel.
   ///
-  /// This is the expensive call, and it blocks. Prefer {@link Analyzer#analyzeAsync} unless
+  /// This call is expensive and blocks. Prefer {@link Analyzer#analyzeAsync} unless
   /// nothing else is waiting on the event loop.
   #[napi]
   pub fn analyze(&self) -> Result<AnalysisResult> {
@@ -177,17 +169,15 @@ impl Analyzer {
 
   /// Runs the analysis model over the buffered audio on a worker thread.
   ///
-  /// Same result as {@link Analyzer#analyze}, off the event loop. The SDK's
-  /// analysis models are too expensive to run on an audio thread, so this is the form to
-  /// reach for in a server: analysis is occasional, and a promise costs nothing next to
-  /// the model.
+  /// Same result as {@link Analyzer#analyze}, off the event loop. Prefer this wherever
+  /// the analysis model is too expensive to run on the calling thread.
   ///
-  /// {@link Analyzer#buffer} stays synchronous and takes no lock, so audio can keep arriving
-  /// while an analysis is in flight. The SDK guarantees the collector and analyzer halves
-  /// are safe to use concurrently. The other methods here do take the analyzer's lock, so
-  /// calling {@link Analyzer#analyze}, {@link Analyzer#reset} or
-  /// {@link Analyzer#terminateSession} while this is pending blocks the calling thread until
-  /// it finishes.
+  /// {@link Analyzer#buffer} stays synchronous and takes no lock, so audio can keep
+  /// arriving while an analysis is in flight; the SDK guarantees the collector and
+  /// analyzer halves are safe to use concurrently. The other methods here do take the
+  /// analyzer's lock, so calling {@link Analyzer#analyze}, {@link Analyzer#reset} or
+  /// {@link Analyzer#terminateSession} while this is pending blocks the calling thread
+  /// until it finishes.
   #[napi(ts_return_type = "Promise<AnalysisResult>")]
   pub fn analyze_async(&self) -> AsyncTask<AnalyzeTask> {
     AsyncTask::new(AnalyzeTask {
@@ -217,10 +207,8 @@ impl Analyzer {
   }
 }
 
-/// Backs {@link Analyzer#analyzeAsync}.
-///
-/// Holds only the analyzer half, so the collector stays on the JS thread where `buffer` can
-/// keep reaching it while this runs.
+/// Holds only the analyzer half, so the collector stays on the JS thread where `buffer`
+/// can keep reaching it while this runs.
 pub struct AnalyzeTask {
   analyzer: Arc<Mutex<DisposableSlot<aic_sdk::Analyzer<'static>>>>,
 }

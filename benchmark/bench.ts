@@ -24,8 +24,8 @@ const blockSize = model.getOptimalBlockSize(sampleRate)
 const processor = new Processor(model, licenseKey)
 processor.initialize(sampleRate, blockSize)
 
-// How many streams the concurrent case runs at once. Parallelism is across instances,
-// never within one, so each stream gets its own processor.
+// How many streams the concurrent case runs at once. Each stream gets its own processor,
+// since overlapping calls on one instance would desync it.
 const concurrency = Number(process.env.AIC_BENCH_CONCURRENCY ?? 4)
 
 const asyncProcessor = await new ProcessorAsync(model, licenseKey).withConfig(sampleRate, blockSize)
@@ -34,8 +34,8 @@ const asyncProcessors = await Promise.all(
 )
 
 // One block of speech-like content, reused so the benchmark measures processing rather
-// than buffer allocation. Nothing writes into it: it stays the reference signal every task
-// starts from.
+// than buffer allocation. Nothing writes into it, so every task starts from the same
+// reference signal.
 const audio = Float32Array.from({ length: blockSize }, (_, i) => Math.sin(i / 10) * 0.5)
 
 // The synchronous call enhances in place, so it gets its own scratch buffer, refilled from
@@ -44,7 +44,7 @@ const audio = Float32Array.from({ length: blockSize }, (_, i) => Math.sin(i / 10
 // audio that had already been enhanced hundreds of thousands of times.
 const syncAudio = new Float32Array(blockSize)
 
-// The async calls resolve to a fresh array each time rather than writing in place, so each
+// The async calls resolve to a fresh array each time instead of writing in place, so each
 // stream keeps its own block to hand back in.
 const asyncAudio = asyncProcessors.map(() => audio.slice())
 
@@ -83,10 +83,10 @@ bench.add(concurrentTask, async () => {
   await Promise.all(asyncProcessors.map((instance, stream) => instance.process(asyncAudio[stream])))
 })
 
-// Analysis, if an analysis model was supplied. Measured separately from enhancement because
-// `analyze` is an occasional call over a span of audio rather than a per-block one, so its
-// cost is what decides whether `analyzeAsync` is worth reaching for at all: anything in the
-// tens of milliseconds is far too long to sit on the event loop.
+// Analysis, if an analysis model was supplied. Measured separately from enhancement:
+// `analyze` is an occasional call over a span of audio, not a per-block one, and its cost
+// decides whether `analyzeAsync` is needed. Anything in the tens of milliseconds is too
+// long to sit on the event loop.
 const analysisModelPath = process.env.AIC_SDK_ANALYSIS_MODEL
 if (analysisModelPath) {
   const analysisModel = Model.fromFile(analysisModelPath)

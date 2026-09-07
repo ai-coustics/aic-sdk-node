@@ -76,8 +76,8 @@ function parseArgs(argv) {
     }
   }
 
-  // Whether an input was given is checked by the caller, which needs the narrowed value
-  // anyway; this only validates what was actually passed.
+  // This only validates what was actually passed. The caller checks that an input was
+  // given, since it needs the narrowed value.
   if (!options.help && (!Number.isFinite(options.enhancement) || options.enhancement < 0 || options.enhancement > 1)) {
     throw new Error('--enhancement must be a number between 0.0 and 1.0')
   }
@@ -116,8 +116,8 @@ async function main() {
   const model = Model.fromFile(await Model.download(options.model, MODEL_DIR))
   console.log('Model id:', model.getId())
 
-  // The file's rate drives the format, not the model's: the SDK resamples internally. The
-  // block size that avoids extra buffering depends on that rate.
+  // The file's rate drives the format, not the model's, since the SDK resamples
+  // internally. The block size that avoids extra buffering depends on that rate.
   const blockSize = model.getOptimalBlockSize(sampleRate)
 
   // Processing is mono, so each channel gets its own processor and its own internal state.

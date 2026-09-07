@@ -15,12 +15,11 @@ impl From<AicError> for JsAicError {
 impl From<JsAicError> for napi::Error {
   fn from(error: JsAicError) -> Self {
     // `AicError`'s `Display` messages are user-facing and already explain how to
-    // recover (see `aic-sdk`'s error.rs), so they are surfaced verbatim.
+    // recover (see `aic-sdk`'s error.rs), so this passes them through verbatim.
     //
-    // Every variant maps to a plain `Error`. Throwing `RangeError` for
-    // `ParameterOutOfRange`, as the wasm binding does, would require a distinct
-    // return type per method in napi-rs for little gain: the message already
-    // names the problem.
+    // Every variant maps to a plain `Error`. Mapping `ParameterOutOfRange` to a
+    // `RangeError`, as the wasm binding does, would need a distinct return type per
+    // method in napi-rs.
     napi::Error::new(napi::Status::GenericFailure, error.0.to_string())
   }
 }

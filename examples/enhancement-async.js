@@ -7,7 +7,7 @@
 //     stays valid while the promise is pending, and resolves to the enhanced samples.
 //   * `getContext()` is awaited, but the handle it resolves to is fully synchronous.
 //
-// It ends by running several streams at once, which is where the async API earns its keep.
+// It ends by running several streams at once, the main reason to use the async API.
 
 const os = require('node:os')
 
@@ -56,8 +56,7 @@ async function main() {
   }, 1)
 
   // The steady-state streaming loop. `process` resolves to a new array, so the block is
-  // reassigned rather than mutated; reusing one variable keeps this as tidy as the
-  // synchronous version.
+  // reassigned instead of mutated, and one variable can carry the stream.
   let audio = Float32Array.from({ length: blockSize }, () => (Math.random() - 0.5) * 0.2)
   console.log('Before:', audio.slice(0, 4))
 

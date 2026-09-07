@@ -33,8 +33,8 @@ function elapsedMs(since: bigint): number {
 function spin(ms: number) {
   const until = process.hrtime.bigint() + BigInt(Math.round(ms * 1e6))
   while (process.hrtime.bigint() < until) {
-    // Deliberately busy: yielding here would hand the event loop back and a timer would
-    // overshoot, either of which lets the analysis finish before dispose() is called.
+    // Busy on purpose. Yielding to the event loop, or waiting on a timer, would let the
+    // analysis finish before dispose() is called.
   }
 }
 
@@ -59,7 +59,7 @@ test('sync processor dispose releases memory and rejects later use', (t) => {
   t.throws(() => processor.getContext(), { message: /disposed/ })
   t.throws(() => processor.terminateSession(), { message: /disposed/ })
 
-  // Dispose is idempotent: a second call does nothing and must not throw.
+  // Idempotent: a second dispose() must not throw.
   processor.dispose()
 
   // The model stays usable after one of its processors is disposed.
@@ -150,7 +150,7 @@ test('analyzer dispose rejects later use and is idempotent', async (t) => {
   t.throws(() => analyzer.analyze(), { message: /disposed/ })
   await t.throwsAsync(() => analyzer.analyzeAsync(), { message: /disposed/ })
 
-  // Dispose is idempotent: a second call does nothing and must not throw.
+  // Idempotent: a second dispose() must not throw.
   analyzer.dispose()
   t.pass()
 })
@@ -158,9 +158,9 @@ test('analyzer dispose rejects later use and is idempotent', async (t) => {
 test('analyzer dispose racing an analyzeAsync settles it without crashing', async (t) => {
   const { analyzer } = bufferedAnalyzer()
 
-  // Disposing in the same tick leaves who reaches the lock first genuinely undecided, so
-  // the promise may resolve or reject. Neither outcome is asserted here; that the race is
-  // resolved safely at all is the point, and the blocking path gets its own test below.
+  // Disposing in the same tick leaves it undecided which side reaches the lock first, so
+  // the promise may resolve or reject and neither outcome is asserted. The next test
+  // covers the case where dispose() does block.
   const inFlight = analyzer.analyzeAsync().catch(() => {})
   analyzer.dispose()
   await inFlight
@@ -172,16 +172,16 @@ test('analyzer dispose racing an analyzeAsync settles it without crashing', asyn
 test('analyzer dispose waits for an in-flight analyzeAsync to finish', async (t) => {
   const { analyzer } = bufferedAnalyzer()
 
-  // Time a warm analysis so the thresholds below scale to this machine rather than to a
-  // guessed constant. The first run pays any lazy setup, so the second is the estimate.
+  // Time a warm analysis so the thresholds below scale to this machine. The first run
+  // pays any lazy setup, so the second is the estimate.
   await analyzer.analyzeAsync()
   const calibrationStarted = process.hrtime.bigint()
   await analyzer.analyzeAsync()
   const analysisMs = elapsedMs(calibrationStarted)
 
-  // Hand the task to libuv and let the worker take the analyzer lock. The delay is spun
-  // rather than timed: a timer's granularity could overshoot the whole analysis, which
-  // would leave dispose() with nothing to wait for and quietly void the test.
+  // Hand the task to libuv and let the worker take the analyzer lock. It spins rather
+  // than waiting on a timer, whose granularity could overshoot the whole analysis and
+  // leave dispose() with nothing to wait for.
   const inFlight = analyzer.analyzeAsync()
   await new Promise((resolve) => setImmediate(resolve))
   spin(Math.min(analysisMs / 8, 5))
@@ -191,12 +191,12 @@ test('analyzer dispose waits for an in-flight analyzeAsync to finish', async (t)
   const blockedMs = elapsedMs(disposeStarted)
 
   // dispose() waited for the lock instead of pulling the analyzer out from under the
-  // worker, so the analysis ran to completion and produced a real result.
+  // worker, so the analysis produced a real result.
   const result = await inFlight
   t.is(typeof result.riskScore, 'number', 'the in-flight analysis must complete, not be cancelled')
 
-  // And it was still running when dispose() was called, so that wait was the lock being
-  // held rather than a no-op on an already-finished analysis.
+  // The analysis was still running when dispose() was called, so the wait above was the
+  // lock being held, not a no-op on an already-finished analysis.
   t.true(
     blockedMs >= analysisMs / 4,
     `dispose() blocked ${blockedMs.toFixed(1)}ms of a ~${analysisMs.toFixed(1)}ms analysis`,
@@ -211,10 +211,10 @@ test('a withConfig handle outlives its original handle being collected', async (
   const blockSize = model.getOptimalBlockSize(sampleRate)
 
   // The chaining form leaves the constructor's handle as garbage. Its finalizer must
-  // give back only its own claim, not destroy the shared native processor.
+  // withdraw only its own footprint report, not destroy the shared native processor.
   const processor = await new ProcessorAsync(model, licenseKey()).withConfig(sampleRate, blockSize)
 
-  // Encourage a GC so the dropped handle's finalizer runs.
+  // Push V8 towards a GC so the dropped handle's finalizer runs.
   const churn: unknown[] = []
   for (let i = 0; i < 10_000; i++) churn.push({ i })
   churn.length = 0

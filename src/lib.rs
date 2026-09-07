@@ -33,10 +33,11 @@ const SDK_WRAPPER_ID_NODE: u32 = 4;
 ///
 /// The id lives in a `OnceLock` upstream: the first write wins and every later write is
 /// silently discarded. `aic-sdk` sets `2` ("Rust") inside each of its `Processor`, `Vad`
-/// and analyzer constructors, so every constructor here claims `4` before delegating. It is
-/// not claimed at module load on purpose: an embedder can only call [`set_sdk_id`] once the
-/// module is loaded, and their write must be able to win, so the window between load and
-/// first construction has to stay open.
+/// and analyzer constructors, so every constructor here claims `4` before delegating.
+///
+/// Not called at module load: an embedder can only reach [`set_sdk_id`] once the module
+/// is loaded, so the window between load and first construction stays open for their
+/// write.
 pub(crate) fn claim_sdk_id() {
   // SAFETY: `4` is the wrapper id assigned to this binding by ai-coustics.
   unsafe { aic_sdk::set_sdk_id(SDK_WRAPPER_ID_NODE) };
