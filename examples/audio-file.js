@@ -1,10 +1,7 @@
 // WAV reading and writing for file-processing.js.
 //
-// Nothing here is SDK-specific; it is kept in its own file so the example stays about the
-// SDK. `wavefile` is a devDependency of this repo; install it alongside the SDK to run
-// that example:
-//
-//   npm install wavefile
+// Requires `wavefile`, included in this repository's devDependencies.
+// For use outside this repository: npm install wavefile
 
 const fs = require('node:fs')
 
@@ -19,11 +16,10 @@ const { WaveFile } = require('wavefile')
 function readWav(path) {
   const wav = new WaveFile(fs.readFileSync(path))
 
-  // Normalizes 16-bit PCM, 24-bit, float and the rest to the float samples the SDK wants.
+  // Convert PCM and floating-point WAV samples to the floating-point format used by the SDK.
   wav.toBitDepth('32f')
 
-  // `getSamples` is declared as returning Float64Array whatever container it is handed, so
-  // the Float32Array it actually produces has to be restated for the type checker.
+  // The wavefile type declaration does not reflect the requested Float32Array output.
   const samples = /** @type {Float32Array[] | Float32Array} */ (
     /** @type {unknown} */ (wav.getSamples(false, Float32Array))
   )
@@ -32,8 +28,7 @@ function readWav(path) {
   const { sampleRate } = /** @type {{ sampleRate: number }} */ (wav.fmt)
 
   return {
-    // De-interleaved multichannel arrives as an array of channels, but mono arrives as one
-    // flat array, so it is wrapped to give callers a single shape to handle.
+    // Return an array of channels for both mono and multichannel input.
     channels: Array.isArray(samples) ? samples : [samples],
     sampleRate,
   }
@@ -49,8 +44,7 @@ function readWav(path) {
 function writeWav(path, channels, sampleRate) {
   const wav = new WaveFile()
 
-  // `fromScratch` wants an array of channels for multichannel but a flat array for mono,
-  // the mirror image of what `readWav` normalizes away.
+  // `fromScratch` expects a flat array for mono and an array of channels otherwise.
   wav.fromScratch(channels.length, sampleRate, '32f', channels.length === 1 ? channels[0] : channels)
 
   fs.writeFileSync(path, wav.toBuffer())

@@ -45,11 +45,13 @@ main()
 ```
 
 Processing is mono. For multichannel audio, mix down to mono or use one processor per
-channel.
+channel. Initialize each instance before passing audio. Blocks must contain exactly
+`blockSize` samples. Set the third `initialize` argument, `variableBlockSize`, to `true`
+to allow shorter blocks; longer blocks are always rejected. This also applies to VAD
+processing and analyzer buffering.
 
-The snippets below are fragments, and each one leaves out that surrounding `async function`
-for brevity. Keep it: `await` at the top level of a CommonJS file is a syntax error, and
-several calls here are asynchronous.
+The following snippets assume an enclosing `async` function. CommonJS files do not support
+top-level `await`.
 
 Runnable scripts for enhancement, VAD, analysis and whole-file processing, synchronous and
 async, are in [`examples/`](examples).
@@ -84,7 +86,7 @@ context.setParameter(ProcessorParameter.Bypass, 0)
 
 console.log(context.getParameter(ProcessorParameter.EnhancementLevel))
 
-// Samples of delay the processor adds, for lining the output up with other streams
+// Get the audio delay in samples to align the output with other streams
 console.log(context.getAudioDelay())
 
 // Clear internal state on a stream discontinuity or seek
@@ -93,31 +95,28 @@ context.reset()
 
 ## Off the main thread
 
-`ProcessorAsync` and `VadAsync` do the same work as `Processor` and `Vad`, but each call
-returns a promise and runs on a worker thread, so the event loop stays responsive. Use them
-when other work shares that loop, as in a server handling live streams alongside its sockets
-and HTTP. The synchronous classes are the pick on a dedicated audio thread or in a batch
-script,
-where nothing else needs the loop and a promise per block would only add overhead.
+`ProcessorAsync` and `VadAsync` run initialization and processing on Node's libuv thread pool.
+Await these calls to keep the event loop available for other work, such as network requests.
+Construction and disposal remain synchronous.
+
+Use `Processor` or `Vad` on a dedicated worker thread, or in a batch script that can block
+the calling thread. These classes process each block without a promise or input copy.
 
 ```javascript
 const { Model, ProcessorAsync } = require('@ai-coustics/aic-sdk')
 
 const processor = await new ProcessorAsync(model, process.env.AIC_SDK_LICENSE).withConfig(sampleRate, blockSize)
 
-// Unlike the synchronous class, this does not write into the caller's array. It resolves
-// to the enhanced samples, so a streaming loop reuses the same variable
-let audio = new Float32Array(blockSize)
-for (;;) {
-  audio = await processor.process(audio)
-}
+// The input remains unmodified; the promise resolves to the enhanced samples.
+const audio = new Float32Array(blockSize)
+const enhanced = await processor.process(audio)
 ```
 
 The input is copied before the work is queued, so it stays valid and untouched while the
 promise is pending. `VadAsync.process` hands the block back unmodified in the same way.
 
-Context handles are awaited but their methods stay synchronous, so a prediction or parameter
-can still be read from inside an audio callback:
+Context creation is asynchronous. The returned context's methods are synchronous and can
+be used while processing runs:
 
 ```javascript
 const context = await processor.getContext()
@@ -126,9 +125,9 @@ context.setParameter(ProcessorParameter.EnhancementLevel, 0.8)
 
 ### Running several streams
 
-One instance handles one stream. Do not start a second `process` on the same instance before
-the first resolves: worker threads complete out of order, which would desync the stream. Give
-each stream its own instance instead.
+Use one instance per stream and await each operation before submitting the next. Concurrent
+calls on one instance are not guaranteed to execute in submission order. Separate instances
+can process streams concurrently.
 
 ```javascript
 const processors = await Promise.all(
@@ -146,9 +145,7 @@ Node starts:
 UV_THREADPOOL_SIZE=16 node server.js
 ```
 
-The core SDK's own `AIC_NUM_THREADS` has no effect here: it sizes a thread pool these
-bindings deliberately do not use, so that all audio work stays on the pool Node already
-manages.
+`AIC_NUM_THREADS` does not apply to these bindings; async audio work uses libuv.
 
 ## Voice activity detection
 
@@ -182,7 +179,8 @@ When enhancement and detection run together, feed the VAD the **original** input
 processor's output. Enhancement is designed to change the signal, so detecting on its output
 means running the VAD on audio that no longer matches what its model expects, and it stacks
 the processor's delay on top of the prediction delay. Because `vad.process` leaves its input
-untouched, running both on the same block is enough:
+untouched, run it before enhancement. Configure both instances with the same sample rate and
+block size:
 
 ```javascript
 vad.process(block) // reads the block
@@ -201,8 +199,8 @@ the audio timeline.
 
 ## Analysis
 
-Analysis models score audio quality. Buffering is cheap enough for the audio path;
-`analyze` runs the model and is not.
+Analysis models score audio quality. Collect audio with `buffer`, then run the model with
+`analyzeAsync` or `analyze`.
 
 ```javascript
 const { Model, Analyzer } = require('@ai-coustics/aic-sdk')
@@ -220,19 +218,21 @@ const result = await analyzer.analyzeAsync()
 console.log(result.riskScore, result.noise, result.speakerReverb)
 ```
 
-`buffer` is cheap enough for the audio path; running the model is not, so it is a separate
-call with two forms. `analyzeAsync` is the one to reach for in a server: analysis is
-occasional, so the promise costs nothing next to the model, and the event loop stays free.
-`analyze` blocks and suits a CLI or a worker thread.
+`buffer` is synchronous and does not acquire the analyzer lock. Audio collection can
+continue while `analyzeAsync` runs on a worker thread. Use `analyze` when blocking the
+calling thread is acceptable, such as in a CLI or dedicated worker.
 
-Only that one call moves off-thread, which is why there is no `AnalyzerAsync` class to match
-`ProcessorAsync`. `buffer` stays synchronous, takes no lock, and can be called while an
-analysis is still running. The SDK guarantees the collector and analyzer halves are safe to
-use concurrently. The analyzer's other methods do wait for a pending analysis to finish.
+Analysis uses a fixed duration of audio determined by the model. Older samples are discarded
+as new audio arrives. If insufficient audio has been collected, analysis pads the remaining
+input with silence.
 
-Every score runs 0.0 - 1.0. Except `speakerLoudness`, lower means less problematic audio.
-`riskScore` is the headline number: how likely this audio is to break downstream models such
-as speech-to-text, VAD or turn-taking.
+Calls to `analyze`, `reset`, `updateBearerToken`, `terminateSession` and `dispose` acquire the
+analyzer lock and may block while async analysis is running. `initialize` only configures
+the collector.
+
+All scores range from 0.0 to 1.0. For every field except `speakerLoudness`, lower values
+indicate less problematic audio. `riskScore` predicts the likelihood of failure in downstream
+models such as speech-to-text, VAD or turn-taking.
 
 ## Telemetry
 
@@ -261,10 +261,9 @@ context.updateBearerToken(renewedJwt)
 ## Memory management
 
 `Model`, `Processor`, `ProcessorAsync`, `Vad`, `VadAsync` and `Analyzer` hold large native
-allocations behind small JavaScript objects. The binding reports each object's native
-footprint to V8 (`napi_adjust_external_memory`), so the garbage collector applies the right
-amount of pressure and reclaims dropped instances promptly instead of letting native memory
-grow unbounded.
+allocations behind small JavaScript objects. The binding reports estimated native memory
+usage to V8 so the garbage collector can account for these allocations. This influences
+collection frequency but does not guarantee when an object will be released.
 
 For deterministic cleanup, every one of these classes also exposes `dispose()`, which
 destroys the native object immediately instead of waiting for garbage collection:
@@ -279,10 +278,14 @@ try {
 }
 ```
 
-After `dispose()`, every method on the object throws; calling `dispose()` again does
-nothing. On the async classes it blocks until in-flight work on the libuv pool finishes.
+After `dispose()`, all methods except `dispose()` fail; repeated disposal has no effect.
+Async methods reject their promises. Disposal blocks the calling thread if a worker holds
+the native object's lock. Queued work that acquires the lock after disposal fails.
 
-Two things to know about cleanup timing:
+Disposing a model releases its reference to the model data. Processors, VADs and analyzers
+created from it retain their own references and remain usable.
+
+Cleanup timing also affects native memory usage:
 
 - Native cleanup runs on the event loop when the object is finalized, not synchronously at
   garbage collection. Finalizers run on event-loop turns, so batches that create many of
@@ -291,9 +294,9 @@ Two things to know about cleanup timing:
   `setTimeout` or `setImmediate` are. A tight synchronous loop that creates thousands of
   objects accumulates their native memory for the duration of the loop; create these
   objects per unit of work behind real async boundaries, or reuse a single instance.
-- RSS reflects the peak of simultaneously live (or not-yet-finalized) instances: the
-  allocator reuses freed native memory rather than returning it to the OS, so a burst of N
-  concurrent instances costs about N x their footprint even after they are dropped.
+- RSS may remain elevated after disposal because the allocator can retain freed memory
+  for reuse. Peak memory use depends on the number of concurrently live instances,
+  including objects awaiting finalization.
 
 ## Development
 

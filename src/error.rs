@@ -1,9 +1,9 @@
 use aic_sdk::AicError;
 
-/// Newtype so the SDK's error can be converted into a JS exception.
+/// Local wrapper for converting an SDK error into a JavaScript exception.
 ///
-/// `AicError` and `napi::Error` are both foreign to this crate, so the
-/// conversion needs a local type to hang the impl on.
+/// Rust's orphan rules require a local type because both `AicError` and `napi::Error`
+/// are defined in dependencies.
 pub struct JsAicError(pub AicError);
 
 impl From<AicError> for JsAicError {
@@ -14,12 +14,7 @@ impl From<AicError> for JsAicError {
 
 impl From<JsAicError> for napi::Error {
   fn from(error: JsAicError) -> Self {
-    // `AicError`'s `Display` messages are user-facing and already explain how to
-    // recover (see `aic-sdk`'s error.rs), so this passes them through verbatim.
-    //
-    // Every variant maps to a plain `Error`. Mapping `ParameterOutOfRange` to a
-    // `RangeError`, as the wasm binding does, would need a distinct return type per
-    // method in napi-rs.
+    // Preserve the SDK's error message. All SDK errors become plain JavaScript Errors.
     napi::Error::new(napi::Status::GenericFailure, error.0.to_string())
   }
 }

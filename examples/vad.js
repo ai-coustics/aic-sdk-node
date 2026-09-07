@@ -48,7 +48,7 @@ async function main() {
   // use it to line speech decisions up with the audio timeline.
   console.log('Prediction delay:', context.getPredictionDelay(), 'samples')
 
-  // Silence, so nothing should be reported. Feed real speech to see this flip.
+  // Process silence as sample input. Replace this with audio from your source.
   const audio = new Float32Array(blockSize)
   for (let block = 0; block < 10; block += 1) {
     // Reads the block without modifying it, so the same buffer can go on to a processor.

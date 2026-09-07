@@ -24,8 +24,7 @@ const blockSize = model.getOptimalBlockSize(sampleRate)
 const processor = new Processor(model, licenseKey)
 processor.initialize(sampleRate, blockSize)
 
-// How many streams the concurrent case runs at once. Each stream gets its own processor,
-// since overlapping calls on one instance would desync it.
+// Number of concurrent streams. Each needs an independent processor to preserve block order.
 const concurrency = Number(process.env.AIC_BENCH_CONCURRENCY ?? 4)
 
 const asyncProcessor = await new ProcessorAsync(model, licenseKey).withConfig(sampleRate, blockSize)
@@ -33,27 +32,21 @@ const asyncProcessors = await Promise.all(
   Array.from({ length: concurrency }, () => new ProcessorAsync(model, licenseKey).withConfig(sampleRate, blockSize)),
 )
 
-// One block of speech-like content, reused so the benchmark measures processing rather
-// than buffer allocation. Nothing writes into it, so every task starts from the same
-// reference signal.
+// Reuse a reference signal to exclude input allocation from the measurement.
 const audio = Float32Array.from({ length: blockSize }, (_, i) => Math.sin(i / 10) * 0.5)
 
-// The synchronous call enhances in place, so it gets its own scratch buffer, refilled from
-// `audio` before every iteration. Enhancing one shared buffer would instead feed each
-// iteration the previous one's output, and would leave the async tasks below measuring
-// audio that had already been enhanced hundreds of thousands of times.
+// Refill the synchronous processor's scratch buffer before each iteration.
+// This prevents enhanced output from becoming the next iteration's input.
 const syncAudio = new Float32Array(blockSize)
 
-// The async calls resolve to a fresh array each time instead of writing in place, so each
-// stream keeps its own block to hand back in.
+// Keep a separate result buffer for each async stream.
 const asyncAudio = asyncProcessors.map(() => audio.slice())
 
 const syncTask = `sync: 1 block`
 const asyncTask = `async: 1 block`
 const concurrentTask = `async: ${concurrency} blocks concurrently`
 
-// Blocks of audio each iteration gets through, so the real-time factor below can compare
-// the one-block cases against the concurrent one on equal terms.
+// Track blocks per iteration to normalize throughput across benchmark cases.
 const blocksPerIteration = new Map([
   [syncTask, 1],
   [asyncTask, 1],
@@ -71,8 +64,7 @@ bench.add(
   { beforeEach: () => syncAudio.set(audio) },
 )
 
-// Same work as above on a worker thread, so the gap against `sync` is the cost of the
-// promise plus the copy in and out.
+// Measure async scheduling, promise and input-copy overhead relative to synchronous processing.
 bench.add(asyncTask, async () => {
   await asyncProcessor.process(audio)
 })
@@ -83,10 +75,8 @@ bench.add(concurrentTask, async () => {
   await Promise.all(asyncProcessors.map((instance, stream) => instance.process(asyncAudio[stream])))
 })
 
-// Analysis, if an analysis model was supplied. Measured separately from enhancement:
-// `analyze` is an occasional call over a span of audio, not a per-block one, and its cost
-// decides whether `analyzeAsync` is needed. Anything in the tens of milliseconds is too
-// long to sit on the event loop.
+// Benchmark analysis separately when an analysis model is supplied.
+// Analysis processes a fixed duration of buffered audio per call.
 const analysisModelPath = process.env.AIC_SDK_ANALYSIS_MODEL
 if (analysisModelPath) {
   const analysisModel = Model.fromFile(analysisModelPath)
@@ -107,8 +97,7 @@ if (analysisModelPath) {
     analyzer.analyze()
   })
 
-  // The gap against the blocking call is the promise plus the thread hop. Against a model
-  // this size it should be lost in the noise.
+  // Measure async scheduling overhead relative to synchronous analysis.
   bench.add('analysis: analyzeAsync', async () => {
     await analyzer.analyzeAsync()
   })

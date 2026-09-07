@@ -9,19 +9,23 @@ use crate::{
 use napi::{Env, bindgen_prelude::Float32Array, bindgen_prelude::ObjectFinalize};
 use napi_derive::napi;
 
-/// Enhancement parameters, all changeable while audio is being processed.
+/// Configurable speech enhancement parameters. Values can be changed during processing.
 #[napi]
 pub enum ProcessorParameter {
-  /// Bypasses processing while preserving the algorithmic delay, so enhancement can be
-  /// toggled without clicks or timing shifts.
+  /// Bypasses enhancement while preserving the processing delay.
   ///
-  /// Range 0.0 - 1.0, where 0.0 is enhancement active and 1.0 is latency-compensated
-  /// passthrough. Defaults to 0.0.
+  /// This allows enhancement to be enabled or disabled without clicks or timing changes.
+  ///
+  /// Range: 0.0 to 1.0. At 0.0 enhancement is active; at 1.0 audio passes through with
+  /// latency compensation. Default: 0.0.
   Bypass = 0,
-  /// Tunes enhancement strength for a given STT engine, environment or UX requirement.
+  /// Controls enhancement strength.
   ///
-  /// Quail models suppress noise more aggressively as this rises (and, with Voice Focus,
-  /// competing speech too); Rook models change the mixback. Range 0.0 - 1.0.
+  /// Quail models apply stronger noise suppression at higher values, including suppression
+  /// of competing speech for Voice Focus models. Rook models adjust the mix of original
+  /// and enhanced audio.
+  ///
+  /// Range: 0.0 to 1.0.
   EnhancementLevel = 1,
 }
 
@@ -34,10 +38,10 @@ impl From<ProcessorParameter> for aic_sdk::ProcessorParameter {
   }
 }
 
-/// Per-instance OpenTelemetry settings.
+/// OpenTelemetry configuration for a processor or VAD instance.
 ///
-/// Overrides the environment-based defaults (e.g. `AIC_SDK_OTEL_ENABLE`) for the one
-/// processor or VAD it is passed to.
+/// Overrides the SDK's environment-based telemetry settings, such as
+/// `AIC_SDK_OTEL_ENABLE`, for the instance receiving this configuration.
 #[napi(object)]
 pub struct OtelConfig {
   /// Whether to export telemetry.
@@ -58,10 +62,7 @@ impl From<OtelConfig> for aic_sdk::OtelConfig {
   }
 }
 
-/// Builds the SDK audio config shared by processors, VADs and analyzers.
-///
-/// Block sizes cross the JS boundary as `u32`; the SDK's `usize` would reach JS as a
-/// BigInt.
+/// Converts JavaScript audio settings into the SDK configuration. Block sizes use JS numbers.
 pub(crate) fn audio_config(
   sample_rate: u32,
   block_size: u32,
@@ -74,16 +75,16 @@ pub(crate) fn audio_config(
   }
 }
 
-/// Speech enhancement processor.
+/// Processes mono audio with an enhancement or bypass model.
 ///
-/// Built from an enhancement or bypass model. Use {@link Vad} for dedicated VAD models
-/// and {@link Analyzer} for analysis models; passing the wrong kind throws.
+/// Call {@link Processor#initialize} before processing audio. Each processor maintains
+/// its own state; create one instance per audio stream. Multiple processors can share
+/// the same {@link Model}.
 ///
-/// Create several processors to handle multiple streams or to switch models at runtime.
+/// Use {@link ProcessorAsync} to run processing on Node's libuv thread pool.
 #[napi(custom_finalize)]
 pub struct Processor {
-  // No lock: every method here runs on the JS thread. Only the async class shares its
-  // slot with tasks on the libuv pool.
+  // Only the JavaScript thread accesses this slot. Async classes use a shared, locked slot.
   slot: DisposableSlot<aic_sdk::Processor<'static>>,
 }
 
@@ -97,10 +98,15 @@ impl ObjectFinalize for Processor {
 
 #[napi]
 impl Processor {
-  /// Creates a processor from an enhancement or bypass model.
+  /// Creates a new speech enhancement processor.
   ///
-  /// Telemetry follows the runtime environment; pass `otelConfig` to override it for this
-  /// instance.
+  /// Construction is synchronous and throws if creation fails. Call
+  /// {@link Processor#initialize} before processing audio.
+  ///
+  /// @param model - Enhancement or bypass model. Other model types are rejected.
+  /// @param licenseKey - SDK license key from https://developers.ai-coustics.com.
+  /// @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
+  ///   the runtime environment.
   #[napi(constructor)]
   pub fn new(
     env: Env,
@@ -123,22 +129,25 @@ impl Processor {
     })
   }
 
-  /// Destroys the native processor immediately, releasing its memory and telemetry
-  /// session without waiting for garbage collection.
+  /// Destroys the native processor and releases its telemetry session.
   ///
-  /// Every later method throws; calling `dispose()` again does nothing.
+  /// Use this for cleanup at a specific point instead of waiting for garbage collection.
+  /// After disposal, all methods except `dispose()` fail. Repeated disposal has no effect.
   #[napi]
   pub fn dispose(&mut self, env: Env) {
     self.slot.release(env);
   }
 
-  /// Configures the processor for an audio format. Must be called before processing.
+  /// Configures the processor for the given audio format.
   ///
-  /// For the lowest delay use {@link Model#getOptimalSampleRate} and
-  /// {@link Model#getOptimalBlockSize}. Allocates, so keep it off the audio path.
+  /// Call this method before processing audio. Use {@link Model#getOptimalSampleRate} and
+  /// {@link Model#getOptimalBlockSize} for the lowest delay.
+  /// This method allocates memory; avoid calling it from audio processing callbacks.
   ///
-  /// With `variableBlockSize` enabled (default `false`), calls shorter than `blockSize`
-  /// are permitted at the cost of extra delay; longer calls are always rejected.
+  /// @param sampleRate - Audio sample rate in Hz.
+  /// @param blockSize - Number of mono samples per block.
+  /// @param variableBlockSize - Allow blocks shorter than `blockSize`. Defaults to `false`.
+  ///   Variable block sizes can add buffering latency. Larger blocks are always rejected.
   #[napi]
   pub fn initialize(
     &mut self,
@@ -155,18 +164,17 @@ impl Processor {
 
   /// Enhances a mono audio block in place.
   ///
-  /// The block must be exactly `blockSize` samples, or at most `blockSize` if
-  /// `variableBlockSize` was enabled.
+  /// Call {@link Processor#initialize} first. The block must contain exactly `blockSize`
+  /// samples, or at most `blockSize` if `variableBlockSize` is enabled.
+  /// If the input uses a SharedArrayBuffer, prevent other workers from accessing it during
+  /// this call.
   #[napi]
   pub fn process(&mut self, mut audio: Float32Array) -> Result<()> {
-    // Taken by value without copying: `Float32Array` is a view onto the caller's
-    // ArrayBuffer, so the writes below land in the JS-owned buffer.
+    // `Float32Array` references the caller's ArrayBuffer; processing writes into it directly.
     //
-    // SAFETY: `as_mut` is unsafe because JS could mutate the backing ArrayBuffer
-    // concurrently. It cannot here: the call is synchronous, so no JS runs while the
-    // slice is alive, the slice never escapes this function, and each Node thread has
-    // its own isolate. The exception is a SharedArrayBuffer written by another worker
-    // mid-call, which no in-place API can guard against.
+    // SAFETY: The call is synchronous and the mutable slice does not escape this function.
+    // JavaScript in this isolate cannot access the buffer during the call. A caller using
+    // SharedArrayBuffer must prevent concurrent access from other workers.
     let samples = unsafe { audio.as_mut() };
 
     map_err(self.slot.get_mut()?.process(samples))
@@ -182,11 +190,14 @@ impl Processor {
     })
   }
 
-  /// Ends this processor's telemetry session, after which it can no longer process audio.
+  /// Terminates the telemetry session associated with this processor.
   ///
-  /// A session is closed automatically when the processor is collected, but GC timing is
-  /// not guaranteed, so call this on a lifecycle event instead. May block, so keep it off
-  /// the audio path.
+  /// Once termination is handled, the processor can no longer process audio.
+  /// The session also ends when the native object is destroyed. Use this method when
+  /// termination must be requested at a specific lifecycle event.
+  ///
+  /// This method may block. Avoid calling it from audio processing callbacks.
+  /// If another session is still active, termination can complete asynchronously.
   #[napi]
   pub fn terminate_session(&mut self) -> Result<()> {
     map_err(self.slot.get_mut()?.terminate_session())
@@ -227,20 +238,26 @@ impl ProcessorContext {
     self.inner.audio_delay() as u32
   }
 
-  /// Clears internal state and buffers, keeping the configured audio settings.
+  /// Clears internal state and buffers while preserving the configured audio settings.
   ///
-  /// Call this on a stream discontinuity or when seeking, to keep earlier audio from
-  /// bleeding into the output.
+  /// Call this when the stream is interrupted or when seeking to prevent previous audio
+  /// from affecting the output.
   #[napi]
   pub fn reset(&self) -> Result<()> {
     map_err(self.inner.reset())
   }
 
-  /// Swaps in a renewed JWT without interrupting processing.
+  /// Replaces the bearer token on the running processor.
   ///
-  /// Only works when both the original key and the new token are JWTs. On failure the
-  /// call is a no-op and the previous token stays active. On success the swap is applied
-  /// immediately and is not gated on backend acceptance.
+  /// Use this to refresh a JWT without recreating the instance. Both the original license
+  /// key and the new token must be JWTs. If this call fails, the previous token remains active.
+  ///
+  /// A successful call validates the token's format and applies it immediately. Backend
+  /// acceptance is checked later. If the backend rejects the token, the SDK retries with
+  /// backoff; processing is eventually disabled if no accepted token arrives in time.
+  /// Supply a valid token to recover the session.
+  ///
+  /// This method allocates memory and takes a mutex. Avoid calling it from audio callbacks.
   #[napi]
   pub fn update_bearer_token(&self, token: String) -> Result<()> {
     map_err(self.inner.update_bearer_token(&token))

@@ -1,18 +1,11 @@
-//! Reports the native footprint of SDK objects to V8's garbage collector.
+//! Reports estimated native memory usage to V8's garbage collector.
 //!
-//! Each binding class is a small JS object in front of a much larger native allocation,
-//! from ~200 KiB for a processor up to the size of the model weights. V8 only sees the JS
-//! side, so without a hint it has no reason to collect dropped instances and a workload
-//! that creates processors per unit of work grows unchecked.
-//! `Env::adjust_external_memory` (`napi_adjust_external_memory`) reports that hidden cost.
+//! V8 cannot infer native allocations from the small JavaScript wrapper objects.
+//! `DisposableSlot` adds an estimate on construction and subtracts it on explicit
+//! release or finalization. This helps GC account for models and processing state.
 //!
-//! [`DisposableSlot`](crate::disposable_slot::DisposableSlot) does the reporting. It adds
-//! its object's footprint on construction and withdraws it again on release, whether that
-//! comes from `dispose()` or from the class finalizer, whichever gets there first.
-//!
-//! The SDK exposes no per-instance memory query, so the footprints below are per-class
-//! constants: measured estimates, rounded up. Over-reporting only costs some extra GC
-//! work; under-reporting would let the growth back in.
+//! The SDK has no per-instance memory query. The constants below are rounded-up
+//! measurements; model estimates use the file size.
 
 use std::path::Path;
 

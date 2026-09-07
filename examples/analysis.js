@@ -1,11 +1,7 @@
-// Audio quality analysis.
+// Audio quality analysis on the calling thread and on a libuv worker.
 //
-// Buffering and analysis are separate calls: `buffer` is cheap enough for the audio path,
-// while running the model is not. Analysis comes in two forms, both shown below:
-// `analyzeAsync` on a worker thread and `analyze` on the calling thread.
-//
-// There is no separate `AnalyzerAsync` class because only one call moves off-thread.
-// `buffer` stays synchronous, and can be called while an analysis runs.
+// `buffer` collects audio synchronously and can continue during `analyzeAsync`.
+// Analysis is computationally expensive; avoid running `analyze` in audio callbacks.
 
 const { Analyzer, Model, getVersion } = require('..')
 
@@ -44,8 +40,7 @@ async function main() {
   }
   console.log('Buffered 100 blocks')
 
-  // The heavy call, on a worker thread. Use this in a server: the event loop stays free
-  // while the model runs, and the tick counter below shows it.
+  // Run analysis on a worker and count event-loop timer callbacks while it runs.
   let ticks = 0
   const ticker = setInterval(() => {
     ticks += 1
@@ -57,9 +52,8 @@ async function main() {
 
   clearInterval(ticker)
 
-  // Every score runs 0.0 - 1.0. Except `speakerLoudness`, lower means less problematic
-  // audio. `riskScore` is the headline number: how likely this audio is to break downstream
-  // models such as speech-to-text, VAD or turn-taking.
+  // Scores range from 0.0 to 1.0. Lower values indicate fewer problems, except for
+  // speakerLoudness. riskScore predicts failure in downstream speech models.
   console.log('\nAnalysis:')
   for (const [name, score] of Object.entries(result)) {
     console.log(`  ${name.padEnd(20)} ${score.toFixed(4)}`)
@@ -71,8 +65,7 @@ async function main() {
   const syncElapsed = performance.now() - syncStart
 
   console.log(`\nanalyzeAsync: ${asyncElapsed.toFixed(1)} ms, analyze: ${syncElapsed.toFixed(1)} ms`)
-  // The blocking call would have held the event loop for its whole duration; the async one
-  // does not, which is what these ticks show.
+  // Report how many timer callbacks ran during async analysis.
   console.log(`Timer fired ${ticks} times during analyzeAsync`)
 
   // `buffer` drives the collector, not the analyzer, so audio can keep arriving while an
