@@ -5,14 +5,14 @@ edition = "2024"
 exclude = ["index.node"]
 license = "Apache-2.0"
 name = "aic-sdk-node"
-rust-version = "1.87"
-version = "0.23.0"
+rust-version = "1.88"
+version = "0.23.1"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-aic-sdk = { version = "0.23.0", features = ["download-lib", "download-model"] }
+aic-sdk = { version = "0.23.1", features = ["download-lib", "download-model"] }
 neon = "1.1"
 
 [profile.release]
