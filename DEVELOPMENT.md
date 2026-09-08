@@ -43,5 +43,10 @@ tag.
 Publishing uses npm trusted publishing over OIDC, so there is no npm token in the
 repository. Each of the seven published packages (`@ai-coustics/aic-sdk` and its six
 platform packages) needs a trusted publisher on npmjs.com naming this repository and the
-workflow file `CI.yml`. npm rejects a publish whose workflow file does not match, with a
-404 on the `PUT` rather than a permission error.
+workflow file `build.yml`, with direct `npm publish` allowed. A mismatched trusted
+publisher can cause authentication errors such as `ENEEDAUTH`.
+
+`check.yml` runs builds, lint, tests, and examples with read-only repository permissions.
+It runs on main-branch pushes and pull requests, and is called by `build.yml` for release
+tags. Only the publish job in `build.yml` receives `contents: write` for GitHub releases
+and `id-token: write` for npm trusted publishing.
