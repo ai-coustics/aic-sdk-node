@@ -2,42 +2,83 @@
 
 ## 0.24.0 - 2026-09-07
 
-Rewritten on [napi-rs](https://napi.rs), on top of the public `aic-sdk` Rust crate.
+This release migrates the Node.js binding from [Neon](https://neon-bindings.com) to
+[napi-rs](https://napi.rs) and updates the underlying ai-coustics SDK to 0.24.0.
+Both implementations use the `aic-sdk` Rust crate. The handwritten JavaScript API wrapper
+is replaced by napi-rs bindings, with TypeScript declarations generated from the Rust API.
 
-The previous release was a raw native addon exporting low-level primitives, wrapped in a
-hand-written JavaScript ergonomics layer and documented only with JSDoc. That layer is gone:
-the binding and its type declarations are now generated from annotated Rust.
+The release adds asynchronous processing and explicit resource cleanup, and includes
+**breaking API changes** for existing integrations.
+
+### Breaking Changes
+
+#### Model downloads are asynchronous
+
+`Model.download()` now returns a promise instead of a path directly. Await the download
+before loading a model:
+
+```javascript
+const modelPath = await Model.download('quail-vf-2.2-s-16khz', './models')
+const model = new Model(modelPath)
+```
+
+#### Collection and analysis use a single `Analyzer`
+
+`new Analyzer(model, key)` replaces `analyzerPair(model, key)`. Initialize and buffer audio
+on the analyzer itself, and replace `analyzeBuffered()` with `analyze()` or `analyzeAsync()`.
+Both analysis methods operate on previously buffered audio; neither takes an audio argument.
+
+| 0.23.x                                                     | 0.24.0                                                  |
+| ---------------------------------------------------------- | ------------------------------------------------------- |
+| `const { collector, analyzer } = analyzerPair(model, key)` | `const analyzer = new Analyzer(model, key)`             |
+| `collector.initialize(rate, size, variable)`               | `analyzer.initialize(rate, size, variable)`             |
+| `collector.buffer(audio)`                                  | `analyzer.buffer(audio)`                                |
+| `analyzer.analyzeBuffered()`                               | `analyzer.analyze()` or `await analyzer.analyzeAsync()` |
+
+`FileAnalyzer` is no longer available. Applications that used it must manage audio windows
+with `Analyzer`, including any reset or padding logic needed for their input. Each call to
+`analyze()` or `analyzeAsync()` returns one result, not an array of windowed results.
+
+#### OpenTelemetry configuration is a plain object
+
+`OtelConfig` is now a TypeScript interface, not a runtime class. Pass a configuration object
+as the optional third argument to a processor or VAD constructor:
+
+| 0.23.x                                 | 0.24.0                                                  |
+| -------------------------------------- | ------------------------------------------------------- |
+| `OtelConfig.enabled()`                 | `{ enable: true }`                                      |
+| `OtelConfig.disabled()`                | `{ enable: false }`                                     |
+| `OtelConfig.withSessionId(id)`         | `{ enable: true, sessionId: id }`                       |
+| `new OtelConfig(enable, id, interval)` | `{ enable, sessionId: id, exportIntervalMs: interval }` |
+
+#### VAD probability accessor renamed
+
+Replace `VadContext.rawVadProbability()` with `VadContext.getRawVadProbability()`.
 
 ### Added
 
-- **TypeScript declarations.** `index.d.ts` ships with the package, with doc comments on
-  every class, method and enum member. Previous releases published no types.
-- **`Analyzer.analyzeAsync`**, running the analysis model on a worker thread. The SDK's
-  analysis models are too expensive for an audio thread, and Node cannot move the analyzer
-  into a worker the way the Rust SDK's collector/analyzer split allows, so this is how that
-  capability is reached here. There is no `AnalyzerAsync` class: only this one call moves
-  off-thread, and `buffer` stays synchronous and lock-free so audio can keep arriving while
-  an analysis is in flight.
-- **`ProcessorAsync` and `VadAsync`**, mirroring the Rust SDK. Each call returns a promise
-  and runs on Node's libuv thread pool, keeping enhancement and detection off the event
-  loop. `process` copies its input and resolves to the samples rather than writing in place,
-  so the caller's array stays valid while the promise is pending. Parallelism is across
-  instances: give each stream its own, and raise `UV_THREADPOOL_SIZE` to run more than four
-  at once.
-- `Model.download` is asynchronous and resolves to the model path, so a cold download no
-  longer blocks the event loop.
-- **`dispose()` on every class holding native resources** (`Model`, `Processor`,
-  `ProcessorAsync`, `Vad`, `VadAsync`, `Analyzer`), destroying the native object
-  immediately instead of waiting for garbage collection. Every later method throws and a
-  repeat `dispose()` does nothing; where work can still be in flight (the async classes,
-  or an `Analyzer` mid-`analyzeAsync`) it blocks until that work finishes.
-  `Model.dispose()` unmaps the model file while objects created from it keep working.
-  `ProcessorContext` and `VadContext` handles stay valid after their object is disposed;
-  calls on them just no longer reach a live one.
-- **Native footprints are reported to V8's garbage collector** (`napi_adjust_external_memory`).
-  These classes hold large native allocations behind small JavaScript objects; without the
-  report the collector felt no pressure to reclaim dropped instances, so native memory
-  grew unbounded.
+- **TypeScript support.** The package now ships generated `index.d.ts` declarations and API
+  documentation for editor autocomplete and type checking. Previous releases provided JSDoc
+  but did not ship TypeScript declarations.
+- **Asynchronous enhancement and VAD.** New `ProcessorAsync` and `VadAsync` classes run
+  operations such as initialization and processing on Node's libuv thread pool. Existing
+  `Processor` and `Vad` classes remain synchronous. Await operations in order for each
+  instance, and use a separate instance for each audio stream.
+  `ProcessorAsync.process()` returns enhanced samples without modifying the input array;
+  `VadAsync.process()` returns a copy of the input samples, with detection state available
+  through its context. Constructors, `dispose()`, and context methods remain synchronous.
+- **Asynchronous analysis.** `Analyzer.analyzeAsync()` runs analysis off the event loop.
+  Audio collection through `Analyzer.buffer()` remains synchronous and can continue while
+  analysis is in progress.
+- **Explicit resource cleanup.** `Model`, `Processor`, `ProcessorAsync`, `Vad`, `VadAsync`,
+  and `Analyzer` now expose `dispose()` to release their native resources without waiting
+  for garbage collection. Repeated disposal is safe; subsequent operations on the disposed
+  object throw or reject. Disposal is synchronous and can wait for work already using the
+  resource; queued work may reject if disposal happens first.
+  Disposing a `Model` releases its reference to the model data. Processors, VADs, and
+  analyzers already created from that model retain their own references and keep working.
+- **Native memory accounting.** Estimated native allocations are now reported to V8 so its
+  garbage collector can account for memory held outside the JavaScript heap.
 - **SDK-internal error reporting.** The SDK reports its own backend failures to ai-coustics error
   tracking. Covered are failed session activations, failed usage reports, and bearer token refreshes
   rejected by `ProcessorContext.updateBearerToken`, `VadContext.updateBearerToken` or
@@ -52,31 +93,9 @@ the binding and its type declarations are now generated from annotated Rust.
 
 ### Changed
 
-The API was modernized:
-
-| 0.23                             | 0.24                                |
-| -------------------------------- | ----------------------------------- |
-| `Model.download(...)` (blocking) | `await Model.download(...)`         |
-| `analyzerPair(model, key)`       | `new Analyzer(model, key)`          |
-| `collector.buffer(...)`          | `analyzer.buffer(...)`              |
-| `OtelConfig.enabled()`           | `{ enable: true }`                  |
-| `VadContext.rawVadProbability()` | `VadContext.getRawVadProbability()` |
-
-- `analyzerPair()` and the separate `Collector` are replaced by a single `Analyzer` class
-  with `buffer()` and `analyze()`. The SDK separates collection from analysis so the
-  halves can live on different threads; that does not apply in Node, where an instance cannot
-  cross into another worker.
-- `OtelConfig` is a plain object (`{ enable, sessionId?, exportIntervalMs? }`) rather than a
-  class with static factories, still passed as the optional third constructor argument.
-- `ProcessorParameter` and `VadParameter` are real enums with stable numeric values
-  (`Bypass = 0`, `EnhancementLevel = 1`; `SpeechHoldDuration = 0`, `Sensitivity = 1`,
-  `MinimumSpeechDuration = 2`).
-- Minimum supported Node version is 18.
-
-### Removed
-
-- `FileAnalyzer`. Its convenience windowing is not yet reimplemented on the new binding;
-  window over `Analyzer` directly in the meantime.
+- `ProcessorParameter` and `VadParameter` now have generated TypeScript `const enum`
+  declarations. Their existing member names and numeric values are unchanged.
+- The package now declares Node.js 18 or later as its supported runtime.
 
 ## 0.23.1 - 2026-09-07
 
