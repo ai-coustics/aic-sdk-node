@@ -48,8 +48,16 @@ impl Model {
   /// @throws If the file cannot be loaded or its format is incompatible with this SDK.
   #[napi(factory)]
   pub fn from_file(env: Env, path: String) -> Result<Self> {
+    // Prevent path traversal attacks by rejecting paths containing '..'.
+    let path_ref = std::path::Path::new(&path);
+    if path_ref.components().any(|c| c == std::path::Component::ParentDir) {
+      return Err(map_err(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        format!("Invalid input: {}", path_ref.display())
+      )));
+    }
     let inner = map_err(aic_sdk::Model::from_file(&path))?;
-    let bytes = mem::model_bytes(std::path::Path::new(&path));
+    let bytes = mem::model_bytes(path_ref);
 
     Ok(Self {
       slot: DisposableSlot::new(env, inner, "Model", bytes),
