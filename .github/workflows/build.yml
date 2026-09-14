@@ -27,15 +27,10 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v7
-      - name: setup pnpm
-        uses: pnpm/action-setup@v6
-      - name: Setup node
-        uses: actions/setup-node@v7
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
         with:
-          node-version: 22
-          cache: pnpm
-      - name: Install dependencies
-        run: pnpm install
+          runtime: node@22
+          cache: true
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:

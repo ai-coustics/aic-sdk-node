@@ -24,20 +24,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: setup pnpm
-        uses: pnpm/action-setup@v6
-      - name: Setup node
-        uses: actions/setup-node@v7
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
         with:
-          node-version: 22
-          cache: pnpm
+          runtime: node@22
+          cache: true
       - name: Install
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: stable
           components: clippy, rustfmt
-      - name: Install dependencies
-        run: pnpm install
       - name: Oxlint
         run: pnpm lint
       - name: Prettier
@@ -101,13 +96,12 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v7
-      - name: setup pnpm
-        uses: pnpm/action-setup@v6
-      - name: Setup node
-        uses: actions/setup-node@v7
+      # Installed on the host so the container does not need pnpm; the workspace is mounted
+      # into it, so `npm run build` finds the napi CLI in node_modules.
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
         with:
-          node-version: 22
-          cache: pnpm
+          runtime: node@22
+          cache: true
       - name: Install
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
@@ -128,10 +122,6 @@ jobs:
         run: ${{ matrix.settings.setup }}
         if: ${{ matrix.settings.setup }}
         shell: bash
-      # Installed on the host so the container does not need pnpm; the workspace is mounted
-      # into it, so `npm run build` finds the napi CLI in node_modules.
-      - name: Install dependencies
-        run: pnpm install
       # The build downloads the matching prebuilt native SDK for the target, so these steps
       # need network access.
       # The image ships Rust 1.82, which predates edition 2024. That edition is required
@@ -184,28 +174,19 @@ jobs:
         settings:
           - host: windows-latest
             target: x86_64-pc-windows-msvc
-            architecture: x64
           - host: macos-latest
             target: x86_64-apple-darwin
-            architecture: x64
           - host: macos-latest
             target: aarch64-apple-darwin
-            architecture: arm64
         node:
           - '22'
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v7
-      - name: setup pnpm
-        uses: pnpm/action-setup@v6
-      - name: Setup node
-        uses: actions/setup-node@v7
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
         with:
-          node-version: ${{ matrix.node }}
-          cache: pnpm
-          architecture: ${{ matrix.settings.architecture }}
-      - name: Install dependencies
-        run: pnpm install
+          runtime: node@${{ matrix.node }}
+          cache: true
       - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
@@ -235,13 +216,10 @@ jobs:
     runs-on: ${{ contains(matrix.target, 'aarch64') && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
-      - name: setup pnpm
-        uses: pnpm/action-setup@v6
-      - name: Setup node
-        uses: actions/setup-node@v7
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
         with:
-          node-version: ${{ matrix.node }}
-          cache: pnpm
+          runtime: node@${{ matrix.node }}
+          cache: true
       - name: Output docker params
         id: docker
         run: |
@@ -254,8 +232,6 @@ jobs:
           " >> $GITHUB_OUTPUT
           echo "IMAGE=node:${{ matrix.node }}-slim" >> $GITHUB_OUTPUT
           echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - name: Install dependencies
-        run: pnpm install --force
       - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
@@ -283,15 +259,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: setup pnpm
-        uses: pnpm/action-setup@v6
-      - name: Setup node
-        uses: actions/setup-node@v7
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
         with:
-          node-version: 22
-          cache: pnpm
-      - name: Install dependencies
-        run: pnpm install
+          runtime: node@22
+          cache: true
       - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
