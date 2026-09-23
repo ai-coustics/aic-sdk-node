@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 # build, so each `napi build --target <triple>` produces a self-contained `.node`
 # with no runtime library discovery. `download-model` backs `Model.download`.
 aic-sdk = { version = "0.24.0", features = ["download-lib", "download-model"] }
-napi = { version = "3.0.0", default-features = false, features = ["napi4"] }
+napi = { version = "3.12.4", default-features = false, features = ["napi4"] }
 napi-derive = "3.0.0"
 
 [build-dependencies]
