@@ -307,6 +307,7 @@ Building, testing, benchmarking and releasing this package are covered in
 
 ## License
 
-This Node wrapper is distributed under the Apache 2.0 license (`LICENSE`). The core SDK it
-links against is distributed under the proprietary AIC-SDK license
-(`LICENSE.AIC_SDK`).
+This Node wrapper is distributed under the Apache 2.0 license (`LICENSE`). The core SDK binary and
+the models are proprietary and governed by the ai-coustics
+[Terms of Service](https://ai-coustics.com/legal/terms) and
+[Model License](https://ai-coustics.com/legal/model-license); see `LICENSE.AIC_SDK`.
