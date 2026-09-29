@@ -15,7 +15,7 @@ For product documentation see [docs.ai-coustics.com](https://docs.ai-coustics.co
 npm install @ai-coustics/aic-sdk
 ```
 
-Prebuilt binaries are published for macOS (x64, arm64), Linux (x64, arm64, glibc) and
+Prebuilt binaries are published for macOS (x64, arm64), Linux (x64, arm64, glibc and musl) and
 Windows (x64, arm64, MSVC). The native SDK is linked statically, so there is no separate
 library to install or put on a search path.
 
@@ -197,6 +197,39 @@ vadContext.getPredictionDelay() // the VAD decision lags the same input by this 
 
 The prediction delay is not applied to the audio. Use it to align speech decisions with
 the input audio.
+
+### Energy-based voice activity detection
+
+An enhancement processor can detect speech in its enhanced signal before output mixing,
+without loading a separate VAD model. Create a context before processing and read it after
+each block:
+
+```javascript
+const { VadParameter } = require('@ai-coustics/aic-sdk')
+
+const vadContext = processor.getEnergyVadContext()
+
+// The energy VAD uses 1.0 to 15.0; higher values detect quieter speech.
+vadContext.setParameter(VadParameter.Sensitivity, 6.0)
+
+processor.process(block)
+console.log(vadContext.isSpeechDetected())
+
+// Equal to the processor's audio delay
+console.log(vadContext.getPredictionDelay())
+
+// Clear the prediction on a stream discontinuity or seek
+vadContext.reset()
+```
+
+Contexts from one processor share a detector, and their methods can be called while audio
+is being processed. A context stays valid after its processor is disposed, but receives no
+more audio. Creating a context keeps inference active even when processing is bypassed or
+the enhancement level is zero. `processor.getContext().reset()` also resets the energy VAD.
+On `ProcessorAsync`, `getEnergyVadContext()` returns a promise.
+
+Use `Vad` with a dedicated VAD model for a speech probability (`getRawVadProbability()`) or
+detection that does not depend on an enhancement model.
 
 ## Analysis
 

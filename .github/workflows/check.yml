@@ -66,7 +66,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The native SDK publishes prebuilt libraries for these six targets only, so this
+        # The native SDK publishes prebuilt libraries for these eight targets only, so this
         # list must stay in sync with `napi.targets` in package.json.
         settings:
           - host: macos-latest
@@ -91,6 +91,20 @@ jobs:
             target: aarch64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
             build: npm run build -- --target aarch64-unknown-linux-gnu
+          # The musl targets cross-compile from the glibc host with zig (`-x`), as the Python
+          # bindings do. Building inside Alpine does not work: with `--target`, cargo links
+          # build scripts statically against musl, so bindgen cannot load libclang. Here the
+          # build scripts run on glibc, and zig supplies the musl sysroot and linker.
+          # napi adds `-C target-feature=-crt-static` so the addon links the musl of the Node
+          # process loading it.
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            zig: true
+            build: pnpm build --target x86_64-unknown-linux-musl -x
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            zig: true
+            build: pnpm build --target aarch64-unknown-linux-musl -x
           - host: windows-latest
             target: x86_64-pc-windows-msvc
             build: pnpm build --target x86_64-pc-windows-msvc
@@ -124,6 +138,16 @@ jobs:
             .cargo-cache
             target/
           key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+      - name: Setup zig
+        if: ${{ matrix.settings.zig }}
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+      - name: Install cargo-zigbuild
+        if: ${{ matrix.settings.zig }}
+        uses: taiki-e/install-action@c44f6b046f1c29ae5918b1e0bfdbb2f1813836fd
+        with:
+          tool: cargo-zigbuild
       - name: Setup toolchain
         run: ${{ matrix.settings.setup }}
         if: ${{ matrix.settings.setup }}
@@ -230,32 +254,13 @@ jobs:
         target:
           - x86_64-unknown-linux-gnu
           - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
         node:
           - '22'
     runs-on: ${{ contains(matrix.target, 'aarch64') && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
-      - name: setup pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - name: Setup node
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ matrix.node }}
-          cache: pnpm
-      - name: Output docker params
-        id: docker
-        run: |
-          node -e "
-            if ('${{ matrix.target }}'.startsWith('aarch64')) {
-              console.log('PLATFORM=linux/arm64')
-            } else {
-              console.log('PLATFORM=linux/amd64')
-            }
-          " >> $GITHUB_OUTPUT
-          echo "IMAGE=node:${{ matrix.node }}-slim" >> $GITHUB_OUTPUT
-          echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - name: Install dependencies
-        run: pnpm install --force
       - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
@@ -264,15 +269,39 @@ jobs:
       - name: List packages
         run: ls -R .
         shell: bash
+      # The tests run in a Node image matching the target's libc. Dependencies are installed
+      # inside it, because a host install would provide glibc builds of native dev
+      # dependencies such as `@oxc-node/core`, which do not load on musl.
+      #
+      # The image is third-party and pulled by a mutable tag, so it never gets the license
+      # and network access together: the first container installs dependencies, downloads
+      # the models and runs the download test without the license; the second runs the
+      # remaining tests with the license, but without network access and with a read-only
+      # workspace. Both mount the workspace at the same path, so the model paths recorded
+      # in `paths.json` resolve in each.
       - name: Test bindings
-        uses: tj-actions/docker-run@1d25a677da8f1243a138dc5db21e307e92986ffe # v2.2.1
         env:
           AIC_SDK_LICENSE: ${{ secrets.AIC_SDK_LICENSE }}
-        with:
-          image: ${{ steps.docker.outputs.IMAGE }}
-          name: test-binding
-          options: '-v ${{ steps.docker.outputs.PNPM_STORE_PATH }}:${{ steps.docker.outputs.PNPM_STORE_PATH }} -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} --platform ${{ steps.docker.outputs.PLATFORM }} -e AIC_SDK_LICENSE'
-          args: npm run test
+          IMAGE: node:${{ matrix.node }}-${{ contains(matrix.target, 'musl') && 'alpine' || 'slim' }}
+          DOWNLOAD_TEST: model download*
+        run: |
+          set -euxo pipefail
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" \
+            -w "$GITHUB_WORKSPACE" \
+            -e CI=true \
+            -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+            -e DOWNLOAD_TEST \
+            "$IMAGE" \
+            sh -euc 'corepack enable && pnpm install --frozen-lockfile && pnpm pretest && node_modules/.bin/ava --match "$DOWNLOAD_TEST"'
+          docker run --rm \
+            --network none \
+            -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE":ro \
+            -w "$GITHUB_WORKSPACE" \
+            -e AIC_SDK_LICENSE \
+            -e DOWNLOAD_TEST \
+            "$IMAGE" \
+            sh -euc 'node_modules/.bin/ava --match "!$DOWNLOAD_TEST"'
   # Runs every example end to end. The lint job typechecks them against `index.d.ts`, which
   # catches a renamed method, but only running them catches a retired model id, a change in
   # SDK behaviour, or an example whose own logic has gone wrong.
@@ -343,6 +372,7 @@ jobs:
           node examples/enhancement-async.js
           node examples/vad.js
           node examples/vad-async.js
+          node examples/energy-vad.js
           node examples/analysis.js
           node examples/file-processing.js --input example-input.wav
       # The example writes alongside its input, so a missing file means the run silently

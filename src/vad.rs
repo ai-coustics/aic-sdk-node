@@ -24,11 +24,17 @@ pub enum VadParameter {
   ///
   /// Range: 0.0 to 300 times the model window length, in seconds. Default: model-specific.
   SpeechHoldDuration = 0,
-  /// Sets the probability threshold for detecting speech in an audio block.
+  /// Controls the sensitivity of speech detection.
   ///
-  /// A model probability above this threshold counts as speech.
+  /// A {@link Vad} with a dedicated VAD model outputs a speech probability for each
+  /// processed audio block and compares it with this threshold.
   ///
-  /// Range: 0.0 to 1.0. Default: model-specific.
+  /// An {@link EnergyVadContext} detects speech from the energy left in the signal after
+  /// enhancement, since enhancement suppresses non-speech components. The energy threshold
+  /// is `10 ** -sensitivity`, so higher values detect quieter speech.
+  ///
+  /// Range: 0.0 to 1.0 for dedicated VAD models; 1.0 to 15.0 for the energy VAD.
+  /// Default: model-specific.
   Sensitivity = 1,
   /// Controls how long speech must be present before the VAD reports speech.
   ///
@@ -50,6 +56,9 @@ impl From<VadParameter> for aic_sdk::VadParameter {
 }
 
 /// Detects speech using a dedicated VAD model.
+///
+/// Enhancement models provide energy-based detection through
+/// {@link Processor#getEnergyVadContext} instead.
 ///
 /// Call {@link Vad#initialize}, then pass mono audio to {@link Vad#process}.
 /// Processing leaves the audio unmodified and updates the prediction, which can be read
@@ -79,7 +88,8 @@ impl Vad {
   /// Construction is synchronous and throws if creation fails. Call
   /// {@link Vad#initialize} before processing audio.
   ///
-  /// @param model - Dedicated VAD model. Other model types are rejected.
+  /// @param model - Dedicated VAD model. Other model types are rejected; for an enhancement
+  ///   model, use {@link Processor#getEnergyVadContext}.
   /// @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
   /// @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
   ///   the runtime environment.
@@ -166,7 +176,8 @@ impl Vad {
   /// If another session is still active, termination can complete asynchronously.
   #[napi]
   pub fn terminate_session(&mut self) -> Result<()> {
-    map_err(self.slot.get_mut()?.terminate_session())
+    self.slot.get_mut()?.terminate_session();
+    Ok(())
   }
 }
 
@@ -189,8 +200,8 @@ impl VadContext {
 
   /// Returns the current value of a VAD parameter.
   #[napi]
-  pub fn get_parameter(&self, parameter: VadParameter) -> Result<f64> {
-    map_err(self.inner.parameter(parameter.into())).map(f64::from)
+  pub fn get_parameter(&self, parameter: VadParameter) -> f64 {
+    self.inner.parameter(parameter.into()).into()
   }
 
   /// Returns whether speech is currently detected.
@@ -230,8 +241,8 @@ impl VadContext {
   /// Call this when the stream is interrupted or when seeking to prevent predictions
   /// from using previous audio. The VAD remains initialized with its configured settings.
   #[napi]
-  pub fn reset(&self) -> Result<()> {
-    map_err(self.inner.reset())
+  pub fn reset(&self) {
+    self.inner.reset()
   }
 
   /// Replaces the bearer token on the running VAD.

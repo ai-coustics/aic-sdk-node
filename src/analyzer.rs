@@ -186,7 +186,8 @@ impl Analyzer {
   /// Clears buffered audio and internal state while preserving the configured audio settings.
   #[napi]
   pub fn reset(&self) -> Result<()> {
-    map_err(lock(&self.analyzer).get_mut()?.reset())
+    lock(&self.analyzer).get_mut()?.reset();
+    Ok(())
   }
 
   /// Replaces the bearer token on the running analyzer.
@@ -213,7 +214,8 @@ impl Analyzer {
   /// termination can complete asynchronously.
   #[napi]
   pub fn terminate_session(&self) -> Result<()> {
-    map_err(lock(&self.analyzer).get_mut()?.terminate_session())
+    lock(&self.analyzer).get_mut()?.terminate_session();
+    Ok(())
   }
 }
 

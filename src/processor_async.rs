@@ -1,6 +1,7 @@
 use crate::{
   claim_sdk_id,
   disposable_slot::{DisposableSlot, lock},
+  energy_vad::EnergyVadContext,
   error::{Result, map_err},
   mem,
   model::Model,
@@ -176,6 +177,20 @@ impl ProcessorAsync {
     })
   }
 
+  /// Returns a promise for an {@link EnergyVadContext} for energy-based speech detection.
+  ///
+  /// Context creation runs on a worker thread because it may wait for processing to
+  /// release the instance lock. The returned context's methods are synchronous and can
+  /// be called while audio is being processed.
+  ///
+  /// See {@link Processor#getEnergyVadContext} for details.
+  #[napi(ts_return_type = "Promise<EnergyVadContext>")]
+  pub fn get_energy_vad_context(&self) -> AsyncTask<ProcessorEnergyVadContextTask> {
+    AsyncTask::new(ProcessorEnergyVadContextTask {
+      slot: self.slot.clone(),
+    })
+  }
+
   /// Terminates the telemetry session associated with this processor.
   ///
   /// Once termination is handled, the processor can no longer process audio.
@@ -272,6 +287,23 @@ impl Task for ProcessorContextTask {
   }
 }
 
+pub struct ProcessorEnergyVadContextTask {
+  slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
+}
+
+impl Task for ProcessorEnergyVadContextTask {
+  type Output = aic_sdk::EnergyVadContext;
+  type JsValue = EnergyVadContext;
+
+  fn compute(&mut self) -> Result<aic_sdk::EnergyVadContext> {
+    Ok(lock(&self.slot).get_mut()?.energy_vad_context())
+  }
+
+  fn resolve(&mut self, _env: Env, context: aic_sdk::EnergyVadContext) -> Result<EnergyVadContext> {
+    Ok(EnergyVadContext { inner: context })
+  }
+}
+
 pub struct ProcessorTerminateTask {
   slot: Arc<Mutex<DisposableSlot<aic_sdk::Processor<'static>>>>,
 }
@@ -281,7 +313,8 @@ impl Task for ProcessorTerminateTask {
   type JsValue = ();
 
   fn compute(&mut self) -> Result<()> {
-    map_err(lock(&self.slot).get_mut()?.terminate_session())
+    lock(&self.slot).get_mut()?.terminate_session();
+    Ok(())
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<()> {

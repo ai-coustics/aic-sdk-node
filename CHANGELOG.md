@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.25.0 - 2026-09-29
+
+This release updates the underlying ai-coustics SDK to 0.25.0.
+
+### Added
+
+#### Energy-based voice activity detection
+
+`Processor.getEnergyVadContext()` and `ProcessorAsync.getEnergyVadContext()` return an
+`EnergyVadContext` that detects speech in the enhanced signal before output mixing. It uses the
+processor's enhancement model, with no separate VAD model. On `ProcessorAsync`, the method
+returns a promise.
+
+```javascript
+const processor = new Processor(model, licenseKey)
+processor.initialize(sampleRate, blockSize)
+const vadContext = processor.getEnergyVadContext()
+vadContext.setParameter(VadParameter.Sensitivity, 6.0)
+
+processor.process(block)
+console.log(vadContext.isSpeechDetected())
+```
+
+The context supports parameter control, prediction delay queries and reset. Its methods can be
+called while audio is being processed, and it remains usable after the processor is disposed,
+though it receives no more audio. Creating one keeps inference active when the processor is
+bypassed or its enhancement level is zero.
+
+For this context, `VadParameter.Sensitivity` ranges from `1.0` to `15.0`; higher values detect
+quieter speech. Dedicated VAD models use a `0.0` to `1.0` probability threshold.
+
+This is the energy-based VAD available in SDK versions before 0.22, with changed behavior. It
+detects quiet and distant speech much more reliably, so fewer words are missed on speakerphones
+and in far-field setups. It also triggers more often on background noise and background voices.
+If there are too many false activations, lower the sensitivity from its default of `6.0`. A value
+around `4.0` gives a false-activation rate close to the previous version while still detecting
+more distant speech.
+
+See [`energy-vad.js`](examples/energy-vad.js) for a complete example.
+
+### Changed
+
+The following methods no longer throw SDK errors. Their TypeScript signatures are unchanged:
+
+- `ProcessorContext.reset()`, `ProcessorContext.getParameter()`, `VadContext.reset()` and
+  `VadContext.getParameter()`
+- `Analyzer.reset()`
+- `Processor.terminateSession()`, `Vad.terminateSession()` and `Analyzer.terminateSession()`, and
+  the promises returned by `ProcessorAsync.terminateSession()` and `VadAsync.terminateSession()`
+
+Methods on disposed instances still throw or reject.
+
+#### Linux musl support
+
+Prebuilt binaries are now published for musl as well as glibc, for x64 and arm64. On Alpine and
+other musl distributions, `npm install @ai-coustics/aic-sdk` installs the matching package,
+`@ai-coustics/aic-sdk-linux-x64-musl` or `@ai-coustics/aic-sdk-linux-arm64-musl`.
+
+### Improvements
+
+- Faster inference from new SIMD-enabled operations.
+- SDK-internal error reports include more detail on why a backend request failed.
+
+### Bug Fixes
+
+- `experimental.audio.output_clipping_samples` now counts clipping in the final mixed output.
+
 ## 0.24.0 - 2026-09-07
 
 This release migrates the Node.js binding from [Neon](https://neon-bindings.com) to

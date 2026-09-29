@@ -1,6 +1,7 @@
 use crate::{
   claim_sdk_id,
   disposable_slot::DisposableSlot,
+  energy_vad::EnergyVadContext,
   error::{Result, map_err},
   mem,
   model::Model,
@@ -190,6 +191,26 @@ impl Processor {
     })
   }
 
+  /// Creates a handle for energy-based speech detection on this processor.
+  ///
+  /// The detector uses the enhanced signal before output mixing and updates as
+  /// {@link Processor#process} processes audio. It shares the processor's enhancement
+  /// model and does not run a separate VAD model. All handles created from this processor
+  /// share the same detector.
+  ///
+  /// Creating a handle keeps enhancement inference active even when the processor is
+  /// bypassed or the enhancement level is zero. Inference remains active for the
+  /// processor's lifetime, even after all energy VAD handles are released.
+  ///
+  /// The handle stays valid after the processor is disposed, but its prediction no longer
+  /// updates. This method allocates memory; avoid calling it from audio processing callbacks.
+  #[napi]
+  pub fn get_energy_vad_context(&mut self) -> Result<EnergyVadContext> {
+    Ok(EnergyVadContext {
+      inner: self.slot.get_mut()?.energy_vad_context(),
+    })
+  }
+
   /// Terminates the telemetry session associated with this processor.
   ///
   /// Once termination is handled, the processor can no longer process audio.
@@ -200,7 +221,8 @@ impl Processor {
   /// If another session is still active, termination can complete asynchronously.
   #[napi]
   pub fn terminate_session(&mut self) -> Result<()> {
-    map_err(self.slot.get_mut()?.terminate_session())
+    self.slot.get_mut()?.terminate_session();
+    Ok(())
   }
 }
 
@@ -225,8 +247,8 @@ impl ProcessorContext {
 
   /// Returns the current value of an enhancement parameter.
   #[napi]
-  pub fn get_parameter(&self, parameter: ProcessorParameter) -> Result<f64> {
-    map_err(self.inner.parameter(parameter.into())).map(f64::from)
+  pub fn get_parameter(&self, parameter: ProcessorParameter) -> f64 {
+    self.inner.parameter(parameter.into()).into()
   }
 
   /// Returns the audio delay in samples at the configured sample rate.
@@ -239,12 +261,13 @@ impl ProcessorContext {
   }
 
   /// Clears internal state and buffers while preserving the configured audio settings.
+  /// Any energy VAD of this processor is also reset.
   ///
   /// Call this when the stream is interrupted or when seeking to prevent previous audio
   /// from affecting the output.
   #[napi]
-  pub fn reset(&self) -> Result<()> {
-    map_err(self.inner.reset())
+  pub fn reset(&self) {
+    self.inner.reset()
   }
 
   /// Replaces the bearer token on the running processor.
