@@ -58,12 +58,6 @@ platform packages) needs a trusted publisher on npmjs.com naming this repository
 workflow file `build.yml`, with direct `npm publish` allowed. A mismatched trusted
 publisher can cause authentication errors such as `ENEEDAUTH`.
 
-npmjs.com only accepts a trusted publisher for a package that already exists. A new
-platform package, such as `@ai-coustics/aic-sdk-linux-x64-musl` or
-`@ai-coustics/aic-sdk-linux-arm64-musl` when musl support was added, must therefore be
-published once by hand before the release that first includes it. Then configure its
-trusted publisher.
-
 `check.yml` runs builds, lint, tests, and examples with read-only repository permissions.
 It runs on main-branch pushes and pull requests, and is called by `build.yml` for release
 tags. Only the publish job in `build.yml` receives `contents: write` for GitHub releases
