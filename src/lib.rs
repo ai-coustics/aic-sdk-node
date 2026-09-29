@@ -9,6 +9,7 @@ use napi_derive::napi;
 
 mod analyzer;
 mod disposable_slot;
+mod energy_vad;
 mod error;
 mod mem;
 mod model;
@@ -18,6 +19,7 @@ mod vad;
 mod vad_async;
 
 pub use analyzer::*;
+pub use energy_vad::*;
 pub use model::*;
 pub use processor::*;
 pub use processor_async::*;

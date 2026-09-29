@@ -1,6 +1,6 @@
 {
   "name": "@ai-coustics/aic-sdk",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "description": "Node.js package of ai-coustics SDK",
   "main": "index.js",
   "types": "index.d.ts",

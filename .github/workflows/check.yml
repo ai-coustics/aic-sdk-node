@@ -343,6 +343,7 @@ jobs:
           node examples/enhancement-async.js
           node examples/vad.js
           node examples/vad-async.js
+          node examples/energy-vad.js
           node examples/analysis.js
           node examples/file-processing.js --input example-input.wav
       # The example writes alongside its input, so a missing file means the run silently

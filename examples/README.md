@@ -8,6 +8,7 @@ Runnable scripts for each part of the SDK.
 | `enhancement-async.js` | Async speech enhancement and concurrent streams          |
 | `vad.js`               | Voice activity detection and its parameters              |
 | `vad-async.js`         | Async detection, and detection combined with enhancement |
+| `energy-vad.js`        | Energy-based detection from an enhancement processor     |
 | `analysis.js`          | Audio quality scoring, blocking and on a worker thread   |
 | `file-processing.js`   | WAV file enhancement with delay compensation             |
 
@@ -40,6 +41,7 @@ node examples/enhancement-async.js
 
 node examples/vad.js
 node examples/vad-async.js
+node examples/energy-vad.js
 
 node examples/analysis.js
 ```

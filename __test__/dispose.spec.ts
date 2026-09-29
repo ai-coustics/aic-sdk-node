@@ -57,6 +57,7 @@ test('sync processor dispose releases memory and rejects later use', (t) => {
   t.throws(() => processor.process(new Float32Array(blockSize)), { message: /disposed/ })
   t.throws(() => processor.initialize(16000, blockSize), { message: /disposed/ })
   t.throws(() => processor.getContext(), { message: /disposed/ })
+  t.throws(() => processor.getEnergyVadContext(), { message: /disposed/ })
   t.throws(() => processor.terminateSession(), { message: /disposed/ })
 
   // Idempotent: a second dispose() must not throw.
@@ -118,6 +119,7 @@ test('async processor dispose rejects later use and is idempotent', async (t) =>
   await t.throwsAsync(() => processor.process(new Float32Array(blockSize)), {
     message: /disposed/,
   })
+  await t.throwsAsync(() => processor.getEnergyVadContext(), { message: /disposed/ })
   await t.throwsAsync(() => processor.terminateSession(), { message: /disposed/ })
   processor.dispose()
   t.pass()

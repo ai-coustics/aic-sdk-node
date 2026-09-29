@@ -56,7 +56,8 @@ impl VadAsync {
   /// Construction is synchronous and throws if creation fails. Await
   /// {@link VadAsync#initialize} or {@link VadAsync#withConfig} before processing audio.
   ///
-  /// @param model - Dedicated VAD model. Other model types are rejected.
+  /// @param model - Dedicated VAD model. Other model types are rejected; for an enhancement
+  ///   model, use {@link ProcessorAsync#getEnergyVadContext}.
   /// @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
   /// @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
   ///   the runtime environment.
@@ -280,7 +281,8 @@ impl Task for VadTerminateTask {
   type JsValue = ();
 
   fn compute(&mut self) -> Result<()> {
-    map_err(lock(&self.slot).get_mut()?.terminate_session())
+    lock(&self.slot).get_mut()?.terminate_session();
+    Ok(())
   }
 
   fn resolve(&mut self, _env: Env, _: ()) -> Result<()> {

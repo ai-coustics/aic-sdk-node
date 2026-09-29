@@ -2,6 +2,7 @@ import test from 'ava'
 
 import {
   Analyzer,
+  EnergyVadContext,
   Model,
   Processor,
   ProcessorAsync,
@@ -305,6 +306,83 @@ test('vad context round-trips parameters', (t) => {
 
   // Sensitivity is a probability threshold, so it is capped at 1.0.
   t.throws(() => context.setParameter(VadParameter.Sensitivity, 7))
+})
+
+test('energy vad contexts share one detector', (t) => {
+  const processor = new Processor(enhancementModel(), licenseKey())
+  const context = processor.getEnergyVadContext()
+  const other = processor.getEnergyVadContext()
+  t.true(context instanceof EnergyVadContext)
+
+  context.setParameter(VadParameter.Sensitivity, 7)
+  t.is(other.getParameter(VadParameter.Sensitivity), 7)
+
+  // f32-backed parameter: see the note in 'processor context round-trips parameters'.
+  context.setParameter(VadParameter.SpeechHoldDuration, 0.08)
+  t.true(other.getParameter(VadParameter.SpeechHoldDuration) >= 0)
+  context.setParameter(VadParameter.MinimumSpeechDuration, 0.02)
+  t.true(other.getParameter(VadParameter.MinimumSpeechDuration) >= 0)
+})
+
+test('energy vad context uses the energy sensitivity range', (t) => {
+  const context = new Processor(enhancementModel(), licenseKey()).getEnergyVadContext()
+
+  for (const value of [1, 6, 15]) {
+    context.setParameter(VadParameter.Sensitivity, value)
+    t.is(context.getParameter(VadParameter.Sensitivity), value)
+  }
+
+  // The energy VAD uses 1.0 to 15.0, not the 0.0 to 1.0 probability range.
+  for (const value of [0.5, 16, Number.NaN]) {
+    t.throws(() => context.setParameter(VadParameter.Sensitivity, value))
+  }
+})
+
+test('energy vad context reports no speech for silence and matches the audio delay', (t) => {
+  const { processor, blockSize } = initializedProcessor()
+  const context = processor.getEnergyVadContext()
+
+  t.false(context.isSpeechDetected(), 'no speech before processing')
+  t.is(context.getPredictionDelay(), processor.getContext().getAudioDelay())
+
+  for (let block = 0; block < 20; block += 1) {
+    processor.process(new Float32Array(blockSize))
+  }
+  t.false(context.isSpeechDetected(), 'silence must not be reported as speech')
+
+  context.setParameter(VadParameter.Sensitivity, 7)
+  t.notThrows(() => context.reset())
+  t.false(context.isSpeechDetected())
+  t.is(context.getParameter(VadParameter.Sensitivity), 7, 'reset retains parameters')
+  t.notThrows(() => processor.getContext().reset())
+})
+
+test('energy vad context outlives its processor', (t) => {
+  const processor = new Processor(enhancementModel(), licenseKey())
+  const context = processor.getEnergyVadContext()
+  context.setParameter(VadParameter.Sensitivity, 7)
+
+  processor.dispose()
+
+  t.notThrows(() => context.reset())
+  t.false(context.isSpeechDetected())
+  t.is(context.getParameter(VadParameter.Sensitivity), 7)
+})
+
+test('async processor exposes an energy vad context', async (t) => {
+  const model = enhancementModel()
+  const sampleRate = model.getOptimalSampleRate()
+  const blockSize = model.getOptimalBlockSize(sampleRate)
+  const processor = await new ProcessorAsync(model, licenseKey()).withConfig(sampleRate, blockSize)
+
+  const context = await processor.getEnergyVadContext()
+  t.true(context instanceof EnergyVadContext)
+  context.setParameter(VadParameter.Sensitivity, 8)
+  t.is(context.getParameter(VadParameter.Sensitivity), 8)
+  t.is(context.getPredictionDelay(), (await processor.getContext()).getAudioDelay())
+
+  await processor.process(new Float32Array(blockSize))
+  t.false(context.isSpeechDetected(), 'silence must not be reported as speech')
 })
 
 test('analyzer scores buffered audio', (t) => {

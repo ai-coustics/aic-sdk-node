@@ -100,6 +100,73 @@ export declare class Analyzer {
 }
 
 /**
+ * Control handle for a {@link Processor}'s energy-based voice activity detector.
+ *
+ * Create one with {@link Processor#getEnergyVadContext} or
+ * {@link ProcessorAsync#getEnergyVadContext}.
+ *
+ * Detection uses the enhanced signal before output mixing, without running a separate
+ * VAD model. Creating a context keeps inference active even when the processor is bypassed
+ * or the enhancement level is zero. Inference remains active until the processor is
+ * destroyed, even if all its energy VAD contexts are released.
+ *
+ * All contexts created from one processor share the same detector. Every method may be
+ * called while audio is being processed.
+ *
+ * Context and processor have independent lifetimes: the context stays valid after its
+ * processor is disposed or garbage-collected, but its prediction no longer updates.
+ * Releasing the context does not destroy the processor or disable detection.
+ *
+ * ```javascript
+ * const processor = new Processor(model, licenseKey)
+ * processor.initialize(sampleRate, blockSize)
+ * const vadContext = processor.getEnergyVadContext()
+ * vadContext.setParameter(VadParameter.Sensitivity, 6.0)
+ * processor.process(block)
+ * console.log(vadContext.isSpeechDetected())
+ * ```
+ */
+export declare class EnergyVadContext {
+  /**
+   * Returns whether speech is currently detected.
+   *
+   * This is `false` before processing and after {@link EnergyVadContext#reset}. The
+   * decision lags its input by {@link EnergyVadContext#getPredictionDelay} samples, and
+   * stops updating if the backing processor stops being processed.
+   */
+  isSpeechDetected(): boolean
+  /**
+   * Sets an energy VAD parameter. Throws if the value is out of range.
+   *
+   * {@link VadParameter.Sensitivity} uses the energy-based range, 1.0 to 15.0.
+   */
+  setParameter(parameter: VadParameter, value: number): void
+  /** Returns the current value of an energy VAD parameter. */
+  getParameter(parameter: VadParameter): number
+  /**
+   * Returns the prediction delay in samples at the configured sample rate.
+   *
+   * Includes input buffering, STFT and model processing, and equals the processor's
+   * {@link ProcessorContext#getAudioDelay}. Energy detection adds no audio delay.
+   * Speech hold and minimum speech duration also affect decision timing but are not
+   * included in this value.
+   *
+   * Before initialization it reports the base delay at the model's optimal settings.
+   * Non-optimal or variable block sizes can add buffering latency. Convert to
+   * milliseconds with `delaySamples * 1000 / sampleRate`.
+   */
+  getPredictionDelay(): number
+  /**
+   * Clears the energy VAD state, including the published speech decision.
+   *
+   * Call this when the stream is interrupted or when seeking to prevent predictions
+   * from using previous audio. Parameters are retained and the processor is not reset.
+   * {@link ProcessorContext#reset} also resets the energy VAD.
+   */
+  reset(): void
+}
+
+/**
  * A loaded ai-coustics model.
  *
  * The same model can be used to create multiple independent instances of a compatible
@@ -219,6 +286,22 @@ export declare class Processor {
    */
   getContext(): ProcessorContext
   /**
+   * Creates a handle for energy-based speech detection on this processor.
+   *
+   * The detector uses the enhanced signal before output mixing and updates as
+   * {@link Processor#process} processes audio. It shares the processor's enhancement
+   * model and does not run a separate VAD model. All handles created from this processor
+   * share the same detector.
+   *
+   * Creating a handle keeps enhancement inference active even when the processor is
+   * bypassed or the enhancement level is zero. Inference remains active for the
+   * processor's lifetime, even after all energy VAD handles are released.
+   *
+   * The handle stays valid after the processor is disposed, but its prediction no longer
+   * updates. This method allocates memory; avoid calling it from audio processing callbacks.
+   */
+  getEnergyVadContext(): EnergyVadContext
+  /**
    * Terminates the telemetry session associated with this processor.
    *
    * Once termination is handled, the processor can no longer process audio.
@@ -320,6 +403,16 @@ export declare class ProcessorAsync {
    */
   getContext(): Promise<ProcessorContext>
   /**
+   * Returns a promise for an {@link EnergyVadContext} for energy-based speech detection.
+   *
+   * Context creation runs on a worker thread because it may wait for processing to
+   * release the instance lock. The returned context's methods are synchronous and can
+   * be called while audio is being processed.
+   *
+   * See {@link Processor#getEnergyVadContext} for details.
+   */
+  getEnergyVadContext(): Promise<EnergyVadContext>
+  /**
    * Terminates the telemetry session associated with this processor.
    *
    * Once termination is handled, the processor can no longer process audio.
@@ -354,6 +447,7 @@ export declare class ProcessorContext {
   getAudioDelay(): number
   /**
    * Clears internal state and buffers while preserving the configured audio settings.
+   * Any energy VAD of this processor is also reset.
    *
    * Call this when the stream is interrupted or when seeking to prevent previous audio
    * from affecting the output.
@@ -378,6 +472,9 @@ export declare class ProcessorContext {
 /**
  * Detects speech using a dedicated VAD model.
  *
+ * Enhancement models provide energy-based detection through
+ * {@link Processor#getEnergyVadContext} instead.
+ *
  * Call {@link Vad#initialize}, then pass mono audio to {@link Vad#process}.
  * Processing leaves the audio unmodified and updates the prediction, which can be read
  * through a {@link VadContext}.
@@ -393,7 +490,8 @@ export declare class Vad {
    * Construction is synchronous and throws if creation fails. Call
    * {@link Vad#initialize} before processing audio.
    *
-   * @param model - Dedicated VAD model. Other model types are rejected.
+   * @param model - Dedicated VAD model. Other model types are rejected; for an enhancement
+   *   model, use {@link Processor#getEnergyVadContext}.
    * @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
    * @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
    *   the runtime environment.
@@ -471,7 +569,8 @@ export declare class VadAsync {
    * Construction is synchronous and throws if creation fails. Await
    * {@link VadAsync#initialize} or {@link VadAsync#withConfig} before processing audio.
    *
-   * @param model - Dedicated VAD model. Other model types are rejected.
+   * @param model - Dedicated VAD model. Other model types are rejected; for an enhancement
+   *   model, use {@link ProcessorAsync#getEnergyVadContext}.
    * @param licenseKey - SDK license key from <https://developers.ai-coustics.com>.
    * @param otelConfig - Optional telemetry configuration. When omitted, telemetry follows
    *   the runtime environment.
@@ -708,11 +807,17 @@ export declare const enum VadParameter {
    */
   SpeechHoldDuration = 0,
   /**
-   * Sets the probability threshold for detecting speech in an audio block.
+   * Controls the sensitivity of speech detection.
    *
-   * A model probability above this threshold counts as speech.
+   * A {@link Vad} with a dedicated VAD model outputs a speech probability for each
+   * processed audio block and compares it with this threshold.
    *
-   * Range: 0.0 to 1.0. Default: model-specific.
+   * An {@link EnergyVadContext} detects speech from the energy left in the signal after
+   * enhancement, since enhancement suppresses non-speech components. The energy threshold
+   * is `10 ** -sensitivity`, so higher values detect quieter speech.
+   *
+   * Range: 0.0 to 1.0 for dedicated VAD models; 1.0 to 15.0 for the energy VAD.
+   * Default: model-specific.
    */
   Sensitivity = 1,
   /**
