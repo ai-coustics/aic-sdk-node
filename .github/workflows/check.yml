@@ -265,7 +265,7 @@ jobs:
         run: ls -R .
         shell: bash
       - name: Test bindings
-        uses: tj-actions/docker-run@v2
+        uses: tj-actions/docker-run@1d25a677da8f1243a138dc5db21e307e92986ffe # v2.2.1
         env:
           AIC_SDK_LICENSE: ${{ secrets.AIC_SDK_LICENSE }}
         with:
