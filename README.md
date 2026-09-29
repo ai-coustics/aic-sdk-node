@@ -15,7 +15,7 @@ For product documentation see [docs.ai-coustics.com](https://docs.ai-coustics.co
 npm install @ai-coustics/aic-sdk
 ```
 
-Prebuilt binaries are published for macOS (x64, arm64), Linux (x64, arm64, glibc) and
+Prebuilt binaries are published for macOS (x64, arm64), Linux (x64, arm64, glibc and musl) and
 Windows (x64, arm64, MSVC). The native SDK is linked statically, so there is no separate
 library to install or put on a search path.
 

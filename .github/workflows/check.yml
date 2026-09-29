@@ -66,7 +66,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The native SDK publishes prebuilt libraries for these six targets only, so this
+        # The native SDK publishes prebuilt libraries for these eight targets only, so this
         # list must stay in sync with `napi.targets` in package.json.
         settings:
           - host: macos-latest
@@ -91,6 +91,20 @@ jobs:
             target: aarch64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
             build: npm run build -- --target aarch64-unknown-linux-gnu
+          # The musl targets cross-compile from the glibc host with zig (`-x`), as the Python
+          # bindings do. Building inside Alpine does not work: with `--target`, cargo links
+          # build scripts statically against musl, so bindgen cannot load libclang. Here the
+          # build scripts run on glibc, and zig supplies the musl sysroot and linker.
+          # napi adds `-C target-feature=-crt-static` so the addon links the musl of the Node
+          # process loading it.
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            zig: true
+            build: pnpm build --target x86_64-unknown-linux-musl -x
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            zig: true
+            build: pnpm build --target aarch64-unknown-linux-musl -x
           - host: windows-latest
             target: x86_64-pc-windows-msvc
             build: pnpm build --target x86_64-pc-windows-msvc
@@ -124,6 +138,16 @@ jobs:
             .cargo-cache
             target/
           key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+      - name: Setup zig
+        if: ${{ matrix.settings.zig }}
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+      - name: Install cargo-zigbuild
+        if: ${{ matrix.settings.zig }}
+        uses: taiki-e/install-action@c44f6b046f1c29ae5918b1e0bfdbb2f1813836fd
+        with:
+          tool: cargo-zigbuild
       - name: Setup toolchain
         run: ${{ matrix.settings.setup }}
         if: ${{ matrix.settings.setup }}
@@ -230,6 +254,8 @@ jobs:
         target:
           - x86_64-unknown-linux-gnu
           - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
         node:
           - '22'
     runs-on: ${{ contains(matrix.target, 'aarch64') && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
@@ -252,9 +278,11 @@ jobs:
               console.log('PLATFORM=linux/amd64')
             }
           " >> $GITHUB_OUTPUT
-          echo "IMAGE=node:${{ matrix.node }}-slim" >> $GITHUB_OUTPUT
+          echo "IMAGE=node:${{ matrix.node }}-${{ contains(matrix.target, 'musl') && 'alpine' || 'slim' }}" >> $GITHUB_OUTPUT
           echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      # The musl test installs its dependencies inside Alpine instead; see below.
       - name: Install dependencies
+        if: ${{ !contains(matrix.target, 'musl') }}
         run: pnpm install --force
       - name: Download artifacts
         uses: actions/download-artifact@v8
@@ -265,6 +293,7 @@ jobs:
         run: ls -R .
         shell: bash
       - name: Test bindings
+        if: ${{ !contains(matrix.target, 'musl') }}
         uses: tj-actions/docker-run@1d25a677da8f1243a138dc5db21e307e92986ffe # v2.2.1
         env:
           AIC_SDK_LICENSE: ${{ secrets.AIC_SDK_LICENSE }}
@@ -273,6 +302,23 @@ jobs:
           name: test-binding
           options: '-v ${{ steps.docker.outputs.PNPM_STORE_PATH }}:${{ steps.docker.outputs.PNPM_STORE_PATH }} -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} --platform ${{ steps.docker.outputs.PLATFORM }} -e AIC_SDK_LICENSE'
           args: npm run test
+      # A host install would provide glibc builds of native dev dependencies such as
+      # `@oxc-node/core`, which do not load on musl, so dependencies are installed inside
+      # the Alpine container. `CI` lets pnpm proceed without a TTY.
+      - name: Test bindings (musl, in Alpine)
+        if: ${{ contains(matrix.target, 'musl') }}
+        env:
+          AIC_SDK_LICENSE: ${{ secrets.AIC_SDK_LICENSE }}
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" \
+            -w "$GITHUB_WORKSPACE" \
+            --platform ${{ steps.docker.outputs.PLATFORM }} \
+            -e AIC_SDK_LICENSE \
+            -e CI=true \
+            -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+            "${{ steps.docker.outputs.IMAGE }}" \
+            sh -euc 'corepack enable && pnpm install --frozen-lockfile && pnpm test'
   # Runs every example end to end. The lint job typechecks them against `index.d.ts`, which
   # catches a renamed method, but only running them catches a retired model id, a change in
   # SDK behaviour, or an example whose own logic has gone wrong.

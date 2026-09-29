@@ -52,6 +52,12 @@ The following methods no longer throw SDK errors. Their TypeScript signatures ar
 
 Methods on disposed instances still throw or reject.
 
+#### Linux musl support
+
+Prebuilt binaries are now published for musl as well as glibc, for x64 and arm64. On Alpine and
+other musl distributions, `npm install @ai-coustics/aic-sdk` installs the matching package,
+`@ai-coustics/aic-sdk-linux-x64-musl` or `@ai-coustics/aic-sdk-linux-arm64-musl`.
+
 ### Improvements
 
 - Faster inference from new SIMD-enabled operations.

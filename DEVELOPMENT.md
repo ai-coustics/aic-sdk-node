@@ -12,6 +12,18 @@ AIC_SDK_LICENSE=<key> pnpm test
 The native library for the host target is downloaded during `cargo build`, so the first
 build needs network access.
 
+The musl targets cross-compile with zig, as in CI. With `zig` and `cargo-zigbuild` on the
+`PATH`:
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+pnpm build --target x86_64-unknown-linux-musl -x
+```
+
+To test the result, run `pnpm install --frozen-lockfile && pnpm test` in a `node:22-alpine`
+container on a copy of the checkout, so the container's musl dependencies do not replace
+the host's `node_modules`.
+
 To benchmark, point the harness at a model file:
 
 ```bash
@@ -29,7 +41,7 @@ merge commit:
 git tag x.x.x && git push origin x.x.x
 ```
 
-Pushing the tag builds all six targets, runs the tests and examples, and publishes to npm.
+Pushing the tag builds all eight targets, runs the tests and examples, and publishes to npm.
 The tag must match the version in `package.json` or the publish step fails. A tag with a
 prerelease suffix, such as `0.24.0-rc.1`, publishes under the `next` dist-tag instead of
 `latest`.
@@ -41,10 +53,16 @@ there fails rather than publishing empty notes. `napi prepublish` runs with
 tag.
 
 Publishing uses npm trusted publishing over OIDC, so there is no npm token in the
-repository. Each of the seven published packages (`@ai-coustics/aic-sdk` and its six
+repository. Each of the nine published packages (`@ai-coustics/aic-sdk` and its eight
 platform packages) needs a trusted publisher on npmjs.com naming this repository and the
 workflow file `build.yml`, with direct `npm publish` allowed. A mismatched trusted
 publisher can cause authentication errors such as `ENEEDAUTH`.
+
+npmjs.com only accepts a trusted publisher for a package that already exists. A new
+platform package, such as `@ai-coustics/aic-sdk-linux-x64-musl` or
+`@ai-coustics/aic-sdk-linux-arm64-musl` when musl support was added, must therefore be
+published once by hand before the release that first includes it. Then configure its
+trusted publisher.
 
 `check.yml` runs builds, lint, tests, and examples with read-only repository permissions.
 It runs on main-branch pushes and pull requests, and is called by `build.yml` for release
