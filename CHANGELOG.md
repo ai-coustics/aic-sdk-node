@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.25.1 - 2026-10-14
+
+This release updates the underlying ai-coustics SDK to 0.25.1.
+
+### Improvements
+
+- Improved the robustness of `AnalysisResult.interferingSpeech` in Tyto 1.1.
+
+### Bug Fixes
+
+- Fixed a click and brief drop in audio volume with Quail Voice Focus models when speech is
+  first detected after processing starts or the processor is reset.
+- Quail Voice Focus models now apply the requested enhancement level
+  (`ProcessorParameter.EnhancementLevel`) even before speech is first detected. Previously, all
+  nonzero enhancement levels produced the same audio during this initial period.
+- Fixed `Processor.terminateSession()`, `Vad.terminateSession()` and
+  `Analyzer.terminateSession()`, as well as the promises returned by
+  `ProcessorAsync.terminateSession()` and `VadAsync.terminateSession()`, blocking until sessions
+  created after the call ended. Terminating the last session now waits only for the final usage
+  reports of sessions that were already terminated. With `ProcessorAsync` and `VadAsync`, these
+  blocked calls could occupy every thread of the libuv thread pool and stall all processing.
+
 ## 0.25.0 - 2026-09-29
 
 This release updates the underlying ai-coustics SDK to 0.25.0.
