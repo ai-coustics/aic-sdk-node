@@ -32,7 +32,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Install
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: stable
           components: clippy, rustfmt
@@ -51,14 +51,14 @@ jobs:
         env:
           RUSTFLAGS: -D warnings
       - name: TOML fmt
-        uses: uncenter/setup-taplo@09968a8ae38d66ddd3d23802c44bf6122d7aa991
+        uses: uncenter/setup-taplo@b18c8c8302695fe63d6853bc004006215ac52b91 # v2
       - run: taplo fmt --check
       - name: Documentation
         run: cargo doc --locked --document-private-items --all-features --workspace
         env:
           RUSTDOCFLAGS: -D warnings
       - name: Unused dependencies
-        uses: taiki-e/install-action@c44f6b046f1c29ae5918b1e0bfdbb2f1813836fd
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-shear
       - run: cargo shear
@@ -123,7 +123,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Install
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
@@ -145,7 +145,7 @@ jobs:
           version: 0.16.0
       - name: Install cargo-zigbuild
         if: ${{ matrix.settings.zig }}
-        uses: taiki-e/install-action@c44f6b046f1c29ae5918b1e0bfdbb2f1813836fd
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-zigbuild
       - name: Setup toolchain
