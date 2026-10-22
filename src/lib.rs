@@ -35,7 +35,8 @@ const SDK_WRAPPER_ID_NODE: u32 = 4;
 /// The upstream `OnceLock` accepts only the first write. Call this before delegating to
 /// an SDK constructor, which would otherwise set the Rust wrapper ID (2).
 /// Delaying this until construction lets embedders call [`set_sdk_id`] after module load.
-pub(crate) fn claim_sdk_id() {
+pub(crate) fn claim_sdk_id(env: napi::Env) {
+  claim_runtime(env);
   // SAFETY: `4` is the wrapper ID assigned to this binding by ai-coustics.
   unsafe { aic_sdk::set_sdk_id(SDK_WRAPPER_ID_NODE) };
 }
@@ -45,7 +46,8 @@ pub(crate) fn claim_sdk_id() {
 /// or `Analyzer`, whose constructors otherwise claim the ID for this SDK. The ID can only
 /// be set once per process; later writes are silently discarded.
 #[napi(js_name = "_setSdkId")]
-pub fn set_sdk_id(id: u32) {
+pub fn set_sdk_id(env: napi::Env, id: u32) {
+  claim_runtime(env);
   // SAFETY: This function has no safety requirements.
   unsafe { aic_sdk::set_sdk_id(id) };
 }
@@ -62,4 +64,13 @@ pub fn get_version() -> String {
 #[napi]
 pub fn get_compatible_model_version() -> u32 {
   aic_sdk::get_compatible_model_version()
+}
+
+fn claim_runtime(env: napi::Env) {
+  if let Ok(version) = env.get_node_version() {
+    if (1..=99).contains(&version.major) && version.minor <= 99 {
+      // Tagged numeric metadata is ignored by native SDKs that predate runtime attribution.
+      unsafe { aic_sdk::set_sdk_id(0x8003_0000 | (version.major << 8) | version.minor) };
+    }
+  }
 }

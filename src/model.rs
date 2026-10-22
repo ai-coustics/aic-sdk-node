@@ -79,7 +79,8 @@ impl Model {
   // napi cannot infer an `AsyncTask`'s resolved type; without the annotation the
   // generated d.ts says `Promise<unknown>`.
   #[napi(ts_return_type = "Promise<string>")]
-  pub fn download(model_id: String, download_dir: String) -> AsyncTask<DownloadTask> {
+  pub fn download(env: Env, model_id: String, download_dir: String) -> AsyncTask<DownloadTask> {
+    crate::claim_runtime(env);
     AsyncTask::new(DownloadTask {
       model_id,
       download_dir,

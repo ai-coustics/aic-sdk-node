@@ -101,7 +101,7 @@ impl Vad {
     otel_config: Option<OtelConfig>,
   ) -> Result<Self> {
     let model_inner = model.inner()?;
-    claim_sdk_id();
+    claim_sdk_id(env);
     let inner = match otel_config {
       Some(config) => aic_sdk::Vad::with_otel_config(model_inner, &license_key, &config.into()),
       None => aic_sdk::Vad::new(model_inner, &license_key),

@@ -95,7 +95,7 @@ impl Analyzer {
   #[napi(constructor)]
   pub fn new(env: Env, model: &Model, license_key: String) -> Result<Self> {
     let model_inner = model.inner()?;
-    claim_sdk_id();
+    claim_sdk_id(env);
     let (collector, analyzer) = map_err(aic_sdk::analyzer_pair(model_inner, &license_key))?;
 
     Ok(Self {
