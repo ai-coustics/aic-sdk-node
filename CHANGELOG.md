@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.25.2 - 2026-10-26
+
+This release updates the underlying ai-coustics SDK to 0.25.2.
+
+### Security
+
+- Updated TLS certificate dependencies to address the recently publicly disclosed
+  [eMudhra intermediate CA certificate vulnerability](https://blog.google/security/protecting-chrome-and-android-users-from-compromised-emudhra-intermediate-ca-certificates/).
+
 ## 0.25.1 - 2026-10-14
 
 This release updates the underlying ai-coustics SDK to 0.25.1.
