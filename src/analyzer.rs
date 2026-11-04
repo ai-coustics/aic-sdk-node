@@ -178,10 +178,10 @@ impl Analyzer {
   /// `dispose` wait for the analyzer lock and may block while analysis is running.
   #[napi(ts_return_type = "Promise<AnalysisResult>")]
   pub fn analyze_async<'env>(&self, env: &'env Env) -> Result<PromiseRaw<'env, AnalysisResult>> {
-    // Spawned here rather than returned as an `AsyncTask`: napi keeps the `&self` borrow
-    // of a returned task alive until it settles, which would reject `buffer` and
-    // `dispose` (`&mut self`) during analysis. The task holds only an `Arc` clone of the
-    // analyzer, so it needs no borrow of `self`.
+    // Returning an `AsyncTask` makes napi retain the `&self` borrow until the task
+    // settles, so calls to `buffer` and `dispose` (which need `&mut self`) would fail
+    // during analysis. Spawning here releases that borrow when this method returns.
+    // The task owns an `Arc` clone that keeps the shared native analyzer alive.
     let task = AnalyzeTask {
       analyzer: self.analyzer.clone(),
     };

@@ -211,30 +211,30 @@ test('analyzer dispose waits for an in-flight analyzeAsync to finish', async (t)
 test('an analyzer collected before its queued analyzeAsync starts still settles it', async (t) => {
   if (typeof global.gc !== 'function') throw new Error('run the tests with --expose-gc')
 
-  // `analyzeAsync` does not root the JS handle, so it can be finalized while the task is
-  // still queued. The finalizer must then leave the analyzer to the task, which holds a
-  // clone of it, instead of releasing it before the task runs.
+  // A queued `analyzeAsync` task keeps the native analyzer alive without keeping its
+  // JS wrapper alive. Finalizing the wrapper must leave the native analyzer usable
+  // by the task, which shares ownership through an `Arc`.
   let collected = false
   const registry = new FinalizationRegistry(() => {
     collected = true
   })
 
-  // Occupy every libuv worker so the analysis stays queued until the analyzer has been
-  // collected and finalized.
+  // Queue work on every libuv worker to give garbage collection time to run before
+  // the analysis starts.
   const poolSize = Number(process.env.UV_THREADPOOL_SIZE) || 4
   const blockers = Array.from(
     { length: poolSize },
     () => new Promise((resolve) => pbkdf2('blocker', 'salt', 2_000_000, 32, 'sha256', resolve)),
   )
 
-  // Create the analyzer in its own scope so no reference outlives the call.
+  // Return only the promise so this scope retains no reference to the JS wrapper.
   const pending = (() => {
     const { analyzer } = bufferedAnalyzer()
     registry.register(analyzer, undefined)
     return analyzer.analyzeAsync()
   })()
 
-  // Native finalizers and registry callbacks run in tasks after the collection itself.
+  // Request collection, then yield to let the finalization callback report it.
   global.gc()
   for (let attempt = 0; attempt < 20 && !collected; attempt += 1) {
     await new Promise((resolve) => setImmediate(resolve))
@@ -245,7 +245,8 @@ test('an analyzer collected before its queued analyzeAsync starts still settles 
   t.is(typeof result.riskScore, 'number')
   await Promise.all(blockers)
 
-  // Keeps the registry reachable until here; a collected registry never calls back.
+  // Keep the registry reachable while waiting for its callback; it could otherwise
+  // be collected along with the wrapper.
   registry.unregister(registry)
 })
 
