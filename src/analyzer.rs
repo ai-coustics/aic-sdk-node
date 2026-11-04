@@ -73,10 +73,9 @@ pub struct Analyzer {
 
 impl ObjectFinalize for Analyzer {
   fn finalize(mut self, env: Env) -> Result<()> {
-    // A pending task can retain the analyzer after this finalizer; the last task to
-    // finish then releases it in `AnalyzeTask::finally`. The SDK permits the collector
-    // and analyzer to be destroyed independently, so the collector can be released
-    // during analysis. Both releases are idempotent.
+    // The collector can be destroyed independently of the analyzer, even during analysis.
+    // Release the analyzer here only if no tasks still own it; otherwise, the last task
+    // releases it in `AnalyzeTask::finally`. Releasing an already disposed object is harmless.
     self.collector.release(env);
     if Arc::strong_count(&self.analyzer) == 1 {
       lock(&self.analyzer).release(env);
@@ -182,8 +181,8 @@ impl Analyzer {
     // Returning an `AsyncTask` makes napi retain the `&self` borrow until the task
     // settles, so calls to `buffer` and `dispose` (which need `&mut self`) would fail
     // during analysis. Spawning here releases that borrow when this method returns.
-    // The task owns an `Arc` clone that keeps the shared native analyzer alive, and
-    // releases it in `finally` if the wrapper was finalized first.
+    // Each task owns an `Arc` clone that keeps the native analyzer alive. If the wrapper
+    // is finalized while tasks are pending, the last task releases it in `finally`.
     let task = AnalyzeTask {
       analyzer: self.analyzer.clone(),
     };
@@ -244,10 +243,11 @@ impl Task for AnalyzeTask {
   }
 
   fn finally(self, env: Env) -> Result<()> {
-    // If the wrapper was finalized while this task was pending, its finalizer skipped the
-    // release, and the last task to finish must withdraw the memory report. Clones are
-    // only made and dropped on the JavaScript thread, which also runs this method, so the
-    // count cannot change between this check and the release.
+    // A count of one means the wrapper is gone and this is the last task holding the
+    // analyzer. Release it here to destroy the native object and remove its memory
+    // estimate from V8's accounting; dropping the Arc alone cannot update V8.
+    // All clones of this Arc are created and dropped on the JavaScript thread, where
+    // `finally` also runs, so the count cannot change between this check and the release.
     if Arc::strong_count(&self.analyzer) == 1 {
       lock(&self.analyzer).release(env);
     }
