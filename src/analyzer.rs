@@ -73,9 +73,10 @@ pub struct Analyzer {
 
 impl ObjectFinalize for Analyzer {
   fn finalize(mut self, env: Env) -> Result<()> {
-    // A pending task can retain the analyzer after this finalizer; see `DisposableSlot`.
-    // The SDK permits the collector and analyzer to be destroyed independently, so the
-    // collector can be released during analysis. Both releases are idempotent.
+    // A pending task can retain the analyzer after this finalizer; the last task to
+    // finish then releases it in `AnalyzeTask::finally`. The SDK permits the collector
+    // and analyzer to be destroyed independently, so the collector can be released
+    // during analysis. Both releases are idempotent.
     self.collector.release(env);
     if Arc::strong_count(&self.analyzer) == 1 {
       lock(&self.analyzer).release(env);
@@ -181,7 +182,8 @@ impl Analyzer {
     // Returning an `AsyncTask` makes napi retain the `&self` borrow until the task
     // settles, so calls to `buffer` and `dispose` (which need `&mut self`) would fail
     // during analysis. Spawning here releases that borrow when this method returns.
-    // The task owns an `Arc` clone that keeps the shared native analyzer alive.
+    // The task owns an `Arc` clone that keeps the shared native analyzer alive, and
+    // releases it in `finally` if the wrapper was finalized first.
     let task = AnalyzeTask {
       analyzer: self.analyzer.clone(),
     };
@@ -239,5 +241,16 @@ impl Task for AnalyzeTask {
 
   fn resolve(&mut self, _env: Env, result: aic_sdk::AnalysisResult) -> Result<AnalysisResult> {
     Ok(result.into())
+  }
+
+  fn finally(self, env: Env) -> Result<()> {
+    // If the wrapper was finalized while this task was pending, its finalizer skipped the
+    // release, and the last task to finish must withdraw the memory report. Clones are
+    // only made and dropped on the JavaScript thread, which also runs this method, so the
+    // count cannot change between this check and the release.
+    if Arc::strong_count(&self.analyzer) == 1 {
+      lock(&self.analyzer).release(env);
+    }
+    Ok(())
   }
 }

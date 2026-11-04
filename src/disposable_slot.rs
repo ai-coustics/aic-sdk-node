@@ -20,9 +20,9 @@ use crate::{
 /// finalizer cannot withdraw it twice.
 ///
 /// A slot dropped without `release` having run still destroys the object, but its bytes
-/// stay reported: withdrawing them needs an `Env`, which `Drop` does not have. This
-/// happens when the last JS handle to a shared object is finalized while a task still
-/// holds a clone, and leaves V8 over-reported for the rest of the process.
+/// stay reported: withdrawing them needs an `Env`, which `Drop` does not have. When the
+/// last JS handle to a shared slot is finalized while a task still holds a clone, the
+/// task must therefore call `release` from `Task::finally` once it holds the last clone.
 pub(crate) struct DisposableSlot<T> {
   inner: Option<T>,
   /// The JS class name, for the disposed error message.
