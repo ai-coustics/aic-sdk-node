@@ -10,7 +10,7 @@ use crate::{
 use napi::{
   Env, Task,
   bindgen_prelude::ObjectFinalize,
-  bindgen_prelude::{AsyncTask, Float32Array},
+  bindgen_prelude::{Float32Array, PromiseRaw},
 };
 use napi_derive::napi;
 use std::sync::{Arc, Mutex};
@@ -177,10 +177,15 @@ impl Analyzer {
   /// Synchronous calls to `analyze`, `reset`, `updateBearerToken`, `terminateSession` and
   /// `dispose` wait for the analyzer lock and may block while analysis is running.
   #[napi(ts_return_type = "Promise<AnalysisResult>")]
-  pub fn analyze_async(&self) -> AsyncTask<AnalyzeTask> {
-    AsyncTask::new(AnalyzeTask {
+  pub fn analyze_async<'env>(&self, env: &'env Env) -> Result<PromiseRaw<'env, AnalysisResult>> {
+    // Spawned here rather than returned as an `AsyncTask`: napi keeps the `&self` borrow
+    // of a returned task alive until it settles, which would reject `buffer` and
+    // `dispose` (`&mut self`) during analysis. The task holds only an `Arc` clone of the
+    // analyzer, so it needs no borrow of `self`.
+    let task = AnalyzeTask {
       analyzer: self.analyzer.clone(),
-    })
+    };
+    Ok(env.spawn(task)?.promise_object())
   }
 
   /// Clears buffered audio and internal state while preserving the configured audio settings.
