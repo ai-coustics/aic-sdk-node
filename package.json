@@ -106,6 +106,7 @@
       "TS_NODE_PROJECT": "./tsconfig.json"
     },
     "nodeArguments": [
+      "--expose-gc",
       "--import",
       "@oxc-node/core/register"
     ]
