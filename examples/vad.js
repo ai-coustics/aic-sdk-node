@@ -5,7 +5,7 @@
 
 const { Model, Vad, VadParameter, getVersion } = require('..')
 
-const MODEL_ID = 'vad-2.1-xxs-16khz'
+const MODEL_ID = 'vad-ms-2.1-xxs-16khz'
 const MODEL_DIR = './models'
 
 async function main() {

@@ -2,7 +2,7 @@
 //
 // Usage:
 //   node examples/file-processing.js --input speech.wav [--output enhanced.wav]
-//                                    [--model quail-vf-2.2-s-16khz] [--enhancement 1.0]
+//                                    [--model quail-vf-2.3-s-16khz] [--enhancement 1.0]
 
 const { Model, Processor, ProcessorParameter, getVersion } = require('..')
 const { enhancedPath, readWav, writeWav } = require('./audio-file.js')
@@ -16,7 +16,7 @@ Usage: node examples/file-processing.js --input <file.wav> [options]
 Options:
   -i, --input <file>         WAV file to enhance (required)
   -o, --output <file>        Where to write the result (default: <input>_enhanced.wav)
-  -m, --model <id>           Model to use (default: quail-vf-2.2-s-16khz)
+  -m, --model <id>           Model to use (default: quail-vf-2.3-s-16khz)
   -e, --enhancement <0..1>   Enhancement level (default: 1.0)
   -h, --help                 Show this message
 
@@ -38,7 +38,7 @@ model such as rook-l-48khz. Browse models at https://artifacts.ai-coustics.io`
  */
 function parseArgs(argv) {
   /** @type {Options} */
-  const options = { model: 'quail-vf-2.2-s-16khz', enhancement: 1.0 }
+  const options = { model: 'quail-vf-2.3-s-16khz', enhancement: 1.0 }
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]

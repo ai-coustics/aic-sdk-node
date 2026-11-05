@@ -5,8 +5,8 @@
 
 const { Model, ProcessorAsync, VadAsync, VadParameter, getVersion } = require('..')
 
-const VAD_MODEL_ID = 'vad-2.1-xxs-16khz'
-const ENHANCEMENT_MODEL_ID = 'quail-vf-2.2-s-16khz'
+const VAD_MODEL_ID = 'vad-ms-2.1-xxs-16khz'
+const ENHANCEMENT_MODEL_ID = 'quail-vf-2.3-s-16khz'
 const MODEL_DIR = './models'
 
 async function main() {

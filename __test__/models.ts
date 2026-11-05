@@ -21,10 +21,10 @@ export interface TestModel {
  * fixtures are published under` test asserts the fixtures still match it.
  */
 export const TEST_MODELS = {
-  enhancement: { id: 'quail-vf-2.2-s-16khz' },
-  vad: { id: 'vad-2.1-xxs-16khz' },
-  analysis: { id: 'tyto-1.1-l-16khz' },
+  enhancement: { id: 'quail-vf-2.3-s-16khz' },
+  vad: { id: 'vad-ms-2.1-xxs-16khz' },
+  analysis: { id: 'tyto-1.2-l-16khz' },
 } satisfies Record<string, TestModel>
 
 /** The model file format version the built addon expects. */
-export const TEST_MODEL_VERSION = 7
+export const TEST_MODEL_VERSION = 8

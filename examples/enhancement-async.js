@@ -8,7 +8,7 @@ const os = require('node:os')
 
 const { Model, ProcessorAsync, ProcessorParameter, getCompatibleModelVersion, getVersion } = require('..')
 
-const MODEL_ID = 'quail-vf-2.2-s-16khz'
+const MODEL_ID = 'quail-vf-2.3-s-16khz'
 const MODEL_DIR = './models'
 const BLOCKS = 100
 const STREAMS = 4
