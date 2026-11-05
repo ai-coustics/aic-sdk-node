@@ -176,19 +176,14 @@ test('analyzer dispose racing an analyzeAsync settles it without crashing', asyn
 test('analyzer dispose waits for an in-flight analyzeAsync to finish', async (t) => {
   const { analyzer } = bufferedAnalyzer()
 
-  // Time a warm analysis so the thresholds below scale to this machine. The first run
-  // pays any lazy setup, so the second is the estimate.
-  await analyzer.analyzeAsync()
-  const calibrationStarted = process.hrtime.bigint()
-  await analyzer.analyzeAsync()
-  const analysisMs = elapsedMs(calibrationStarted)
-
   // Hand the task to libuv and let the worker take the analyzer lock. It spins rather
   // than waiting on a timer, whose granularity could overshoot the whole analysis and
   // leave dispose() with nothing to wait for.
+  const analysisStarted = process.hrtime.bigint()
   const inFlight = analyzer.analyzeAsync()
   await new Promise((resolve) => setImmediate(resolve))
-  spin(Math.min(analysisMs / 8, 5))
+  spin(5)
+  const beforeDisposeMs = elapsedMs(analysisStarted)
 
   const disposeStarted = process.hrtime.bigint()
   analyzer.dispose()
@@ -198,11 +193,14 @@ test('analyzer dispose waits for an in-flight analyzeAsync to finish', async (t)
   const result = await inFlight
   t.is(typeof result.riskScore, 'number', 'the in-flight analysis must complete, not be cancelled')
 
-  // The analysis was still running when dispose() was called, so the wait above was the
-  // lock being held, not a no-op on an already-finished analysis.
+  // Disposing an idle analyzer takes well under a millisecond, so blocking for longer than
+  // the analysis had already been running means dispose() waited for the lock, not that it
+  // ran after an already-finished analysis. Both durations are measured under the same
+  // load, unlike a separately timed calibration run, which other concurrent tests can
+  // slow down.
   t.true(
-    blockedMs >= analysisMs / 4,
-    `dispose() blocked ${blockedMs.toFixed(1)}ms of a ~${analysisMs.toFixed(1)}ms analysis`,
+    blockedMs > beforeDisposeMs,
+    `dispose() blocked ${blockedMs.toFixed(1)}ms, ${beforeDisposeMs.toFixed(1)}ms after the analysis started`,
   )
 
   t.throws(() => analyzer.analyze(), { message: /disposed/ })
