@@ -173,22 +173,17 @@ test('analyzer dispose racing an analyzeAsync settles it without crashing', asyn
   t.pass()
 })
 
-test('analyzer dispose waits for an in-flight analyzeAsync to finish', async (t) => {
+// Serial, so that concurrent tests in this file cannot hold up the event loop between
+// starting the analysis and calling dispose() for long enough that the analysis finishes.
+test.serial('analyzer dispose waits for an in-flight analyzeAsync to finish', async (t) => {
   const { analyzer } = bufferedAnalyzer()
-
-  // Time a warm analysis so the thresholds below scale to this machine. The first run
-  // pays any lazy setup, so the second is the estimate.
-  await analyzer.analyzeAsync()
-  const calibrationStarted = process.hrtime.bigint()
-  await analyzer.analyzeAsync()
-  const analysisMs = elapsedMs(calibrationStarted)
 
   // Hand the task to libuv and let the worker take the analyzer lock. It spins rather
   // than waiting on a timer, whose granularity could overshoot the whole analysis and
   // leave dispose() with nothing to wait for.
   const inFlight = analyzer.analyzeAsync()
   await new Promise((resolve) => setImmediate(resolve))
-  spin(Math.min(analysisMs / 8, 5))
+  spin(5)
 
   const disposeStarted = process.hrtime.bigint()
   analyzer.dispose()
@@ -198,12 +193,11 @@ test('analyzer dispose waits for an in-flight analyzeAsync to finish', async (t)
   const result = await inFlight
   t.is(typeof result.riskScore, 'number', 'the in-flight analysis must complete, not be cancelled')
 
-  // The analysis was still running when dispose() was called, so the wait above was the
-  // lock being held, not a no-op on an already-finished analysis.
-  t.true(
-    blockedMs >= analysisMs / 4,
-    `dispose() blocked ${blockedMs.toFixed(1)}ms of a ~${analysisMs.toFixed(1)}ms analysis`,
-  )
+  // Disposing an idle analyzer takes well under a millisecond, while an analysis takes tens
+  // to hundreds of milliseconds, so a long block means dispose() waited for the lock rather
+  // than running after an already-finished analysis. A fixed threshold avoids comparing
+  // against other timings, which concurrent tests can distort.
+  t.true(blockedMs >= 10, `dispose() blocked only ${blockedMs.toFixed(1)}ms`)
 
   t.throws(() => analyzer.analyze(), { message: /disposed/ })
 })

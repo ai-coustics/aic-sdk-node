@@ -5,7 +5,7 @@
 
 const { Analyzer, Model, getVersion } = require('..')
 
-const MODEL_ID = 'tyto-1.1-l-16khz'
+const MODEL_ID = 'tyto-1.2-l-16khz'
 const MODEL_DIR = './models'
 
 async function main() {

@@ -5,7 +5,7 @@
 
 const { Model, Processor, ProcessorParameter, getCompatibleModelVersion, getVersion } = require('..')
 
-const MODEL_ID = 'quail-vf-2.2-s-16khz'
+const MODEL_ID = 'quail-vf-2.3-s-16khz'
 const MODEL_DIR = './models'
 
 async function main() {

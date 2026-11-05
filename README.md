@@ -26,7 +26,7 @@ const { Model, Processor } = require('@ai-coustics/aic-sdk')
 
 async function main() {
   // Download a model once, or fetch one manually from https://artifacts.ai-coustics.io
-  const modelPath = await Model.download('quail-vf-2.2-s-16khz', './models')
+  const modelPath = await Model.download('quail-vf-2.3-s-16khz', './models')
   const model = Model.fromFile(modelPath)
 
   // Use the model's optimal configuration for the lowest delay
@@ -155,7 +155,7 @@ VAD runs a dedicated VAD model and is driven independently of any processor.
 ```javascript
 const { Model, Vad, VadParameter } = require('@ai-coustics/aic-sdk')
 
-const vadModel = Model.fromFile(await Model.download('vad-2.1-xxs-16khz', './models'))
+const vadModel = Model.fromFile(await Model.download('vad-ms-2.1-xxs-16khz', './models'))
 const vad = new Vad(vadModel, process.env.AIC_SDK_LICENSE)
 
 const sampleRate = vadModel.getOptimalSampleRate()
@@ -239,7 +239,7 @@ Analysis models score audio quality. Collect audio with `buffer`, then run the m
 ```javascript
 const { Model, Analyzer } = require('@ai-coustics/aic-sdk')
 
-const analysisModel = Model.fromFile(await Model.download('tyto-1.1-l-16khz', './models'))
+const analysisModel = Model.fromFile(await Model.download('tyto-1.2-l-16khz', './models'))
 const analyzer = new Analyzer(analysisModel, process.env.AIC_SDK_LICENSE)
 
 const sampleRate = analysisModel.getOptimalSampleRate()
