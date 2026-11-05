@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.26.0
+## 0.26.0 - 2026-11-05
 
 This release updates the underlying ai-coustics SDK to 0.26.0.
 
